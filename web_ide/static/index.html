@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Flask IDE</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            display: flex;
+            height: 100vh;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1e1e1e;
+            color: #cccccc;
+        }
+
+        #sidebar {
+            width: 280px;
+            background: #252526;
+            border-right: 1px solid #3c3c3c;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sidebar-header {
+            padding: 12px;
+            background: #2d2d30;
+            border-bottom: 1px solid #3c3c3c;
+        }
+
+        .sidebar-header h3 {
+            font-size: 14px;
+            color: #cccccc;
+            margin-bottom: 8px;
+        }
+
+        .create-controls {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 8px;
+        }
+
+        #newPath {
+            flex: 1;
+            background: #3c3c3c;
+            border: 1px solid #464647;
+            border-radius: 3px;
+            padding: 6px 8px;
+            color: #cccccc;
+            font-size: 12px;
+        }
+
+        #newPath:focus {
+            outline: none;
+            border-color: #007acc;
+        }
+
+        #newType {
+            background: #3c3c3c;
+            border: 1px solid #464647;
+            border-radius: 3px;
+            padding: 6px;
+            color: #cccccc;
+            font-size: 12px;
+        }
+
+        .btn {
+            background: #0e639c;
+            border: none;
+            border-radius: 3px;
+            padding: 6px 10px;
+            color: white;
+            font-size: 12px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .btn:hover {
+            background: #1177bb;
+        }
+
+        .btn.delete {
+            background: #d73a49;
+        }
+
+        .btn.delete:hover {
+            background: #e74c58;
+        }
+
+        #fileList {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px 0;
+        }
+
+        .tree-item {
+            display: flex;
+            align-items: center;
+            padding: 4px 8px;
+            cursor: pointer;
+            user-select: none;
+            min-height: 22px;
+            position: relative;
+        }
+
+        .tree-item:hover {
+            background: #2a2d2e;
+        }
+
+        .tree-item.selected {
+            background: #094771;
+        }
+
+        .tree-item.selected:hover {
+            background: #0e639c;
+        }
+
+        .tree-arrow {
+            width: 16px;
+            height: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            margin-right: 4px;
+            transition: transform 0.2s;
+        }
+
+        .tree-arrow.expanded {
+            transform: rotate(90deg);
+        }
+
+        .tree-arrow.hidden {
+            visibility: hidden;
+        }
+
+        .tree-icon {
+            width: 16px;
+            height: 16px;
+            margin-right: 6px;
+            flex-shrink: 0;
+            object-fit: contain;
+        }
+
+        .tree-label {
+            font-size: 13px;
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .tree-children {
+            margin-left: 20px;
+        }
+
+        .back-button {
+            display: flex;
+            align-items: center;
+            padding: 8px;
+            cursor: pointer;
+            border-bottom: 1px solid #3c3c3c;
+            background: #2d2d30;
+        }
+
+        .back-button:hover {
+            background: #383838;
+        }
+
+        #editor {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #filename {
+            background: #2d2d30;
+            padding: 8px 12px;
+            font-size: 13px;
+            border-bottom: 1px solid #3c3c3c;
+            color: #cccccc;
+        }
+
+        #monaco {
+            flex: 1;
+        }
+
+        .view-toggle {
+            display: flex;
+            gap: 4px;
+            margin-top: 8px;
+        }
+
+        .toggle-btn {
+            background: #3c3c3c;
+            border: 1px solid #464647;
+            border-radius: 3px;
+            padding: 4px 8px;
+            color: #cccccc;
+            font-size: 11px;
+            cursor: pointer;
+        }
+
+        .toggle-btn.active {
+            background: #0e639c;
+            border-color: #007acc;
+        }
+
+        /* Scrollbar styling */
+        #fileList::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        #fileList::-webkit-scrollbar-track {
+            background: #252526;
+        }
+
+        #fileList::-webkit-scrollbar-thumb {
+            background: #464647;
+            border-radius: 4px;
+        }
+
+        #fileList::-webkit-scrollbar-thumb:hover {
+            background: #5a5a5a;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="sidebar">
+        <div class="sidebar-header">
+            <h3>EXPLORER</h3>
+            <div class="create-controls">
+                <input id="newPath" placeholder="filename.ext" />
+                <select id="newType">
+                    <option value="file">File</option>
+                    <option value="folder">Folder</option>
+                </select>
+            </div>
+            <div class="create-controls">
+                <button class="btn" onclick="createEntry()">Create</button>
+                <button class="btn delete" onclick="deleteSelected()">Delete</button>
+            </div>
+            <div class="view-toggle">
+                <button class="toggle-btn active" id="treeView" onclick="switchToTreeView()">Tree</button>
+                <button class="toggle-btn" id="flatView" onclick="switchToFlatView()">Flat</button>
+            </div>
+        </div>
+        <div id="fileList"></div>
+    </div>
+
+    <div id="editor">
+        <div id="filename">No file selected</div>
+        <div id="monaco"></div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.34.1/min/vs/loader.min.js"></script>
+    <script>
+        let currentPath = "";
+        let currentDir = "";
+        let selectedItem = null;
+        let viewMode = "tree"; // "tree" or "flat"
+        const expandedDirs = new Set();
+
+        const ICONS = {
+            folder: "vscode-icons:default-folder",
+            folderOpen: "vscode-icons:default-folder-opened",
+            py: "vscode-icons:file-type-python",
+            js: "vscode-icons:file-type-js-official",
+            jsx: "vscode-icons:file-type-reactjs",
+            ts: "vscode-icons:file-type-typescript-official",
+            tsx: "vscode-icons:file-type-reactts",
+            json: "vscode-icons:file-type-json",
+            html: "vscode-icons:file-type-html",
+            css: "vscode-icons:file-type-css",
+            scss: "vscode-icons:file-type-scss",
+            less: "vscode-icons:file-type-less",
+            txt: "vscode-icons:file-type-text",
+            md: "vscode-icons:file-type-markdown",
+            pdf: "vscode-icons:file-type-pdf",
+            jpg: "vscode-icons:file-type-image",
+            jpeg: "vscode-icons:file-type-image",
+            png: "vscode-icons:file-type-image",
+            gif: "vscode-icons:file-type-image",
+            svg: "vscode-icons:file-type-svg",
+            zip: "vscode-icons:file-type-zip",
+            xml: "vscode-icons:file-type-xml",
+            yml: "vscode-icons:file-type-yaml",
+            yaml: "vscode-icons:file-type-yaml",
+            php: "vscode-icons:file-type-php",
+            java: "vscode-icons:file-type-java",
+            cpp: "vscode-icons:file-type-cpp",
+            c: "vscode-icons:file-type-c",
+            go: "vscode-icons:file-type-go",
+            rs: "vscode-icons:file-type-rust",
+            rb: "vscode-icons:file-type-ruby",
+            default: "vscode-icons:default-file"
+        };
+
+        function getIconURL(fileName, isFolder, isExpanded = false) {
+            if (isFolder) {
+                const iconName = isExpanded ? ICONS.folderOpen : ICONS.folder;
+                return `https://api.iconify.design/${iconName}.svg`;
+            }
+            const ext = fileName.split(".").pop()?.toLowerCase();
+            const iconName = ICONS[ext] || ICONS.default;
+            return `https://api.iconify.design/${iconName}.svg`;
+        }
+
+        function clearSelection() {
+            document.querySelectorAll('.tree-item.selected').forEach(el => {
+                el.classList.remove('selected');
+            });
+            selectedItem = null;
+        }
+
+        function selectItem(element, path, isFile = true) {
+            clearSelection();
+            element.classList.add('selected');
+            selectedItem = { element, path, isFile };
+            if (isFile) {
+                currentPath = path;
+            }
+        }
+
+        function createTreeItem(item, fullPath, depth = 0) {
+            const itemDiv = document.createElement('div');
+            const isExpanded = expandedDirs.has(fullPath);
+
+            const treeItem = document.createElement('div');
+            treeItem.className = 'tree-item';
+            treeItem.style.paddingLeft = `${8 + depth * 16}px`;
+
+            // Arrow for folders
+            const arrow = document.createElement('div');
+            arrow.className = `tree-arrow ${item.type === 'folder' ? (isExpanded ? 'expanded' : '') : 'hidden'}`;
+            arrow.textContent = item.type === 'folder' ? '▶' : '';
+
+            // Icon
+            const icon = document.createElement('img');
+            icon.className = 'tree-icon';
+            icon.src = getIconURL(item.name, item.type === 'folder', isExpanded);
+            icon.width = 16;
+            icon.height = 16;
+            icon.style.objectFit = 'contain';
+
+            // Label
+            const label = document.createElement('span');
+            label.className = 'tree-label';
+            label.textContent = item.name;
+
+            treeItem.appendChild(arrow);
+            treeItem.appendChild(icon);
+            treeItem.appendChild(label);
+
+            // Click handlers
+            if (item.type === 'folder') {
+                treeItem.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    selectItem(treeItem, fullPath, false);
+
+                    // Toggle expand/collapse
+                    if (expandedDirs.has(fullPath)) {
+                        expandedDirs.delete(fullPath);
+                        arrow.classList.remove('expanded');
+                        icon.src = getIconURL(item.name, true, false);
+                        const children = itemDiv.querySelector('.tree-children');
+                        if (children) children.remove();
+                    } else {
+                        expandedDirs.add(fullPath);
+                        arrow.classList.add('expanded');
+                        icon.src = getIconURL(item.name, true, true);
+                        loadTreeChildren(itemDiv, fullPath, depth + 1);
+                    }
+                });
+
+                // Double click to enter folder in flat view
+                treeItem.addEventListener('dblclick', (e) => {
+                    e.stopPropagation();
+                    switchToFlatView();
+                    currentDir = fullPath;
+                    loadFlatFolder(fullPath);
+                });
+            } else {
+                // File click
+                treeItem.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    selectItem(treeItem, fullPath, true);
+                    openFile(fullPath);
+                });
+            }
+
+            itemDiv.appendChild(treeItem);
+
+            // Load children if expanded
+            if (item.type === 'folder' && isExpanded) {
+                loadTreeChildren(itemDiv, fullPath, depth + 1);
+            }
+
+            return itemDiv;
+        }
+
+        function loadTreeChildren(parentDiv, dirPath, depth) {
+            fetch(`/api/list?dir=${dirPath}`)
+                .then(res => res.json())
+                .then(data => {
+                    const childrenDiv = document.createElement('div');
+                    childrenDiv.className = 'tree-children';
+
+                    data.sort((a, b) => {
+                        if (a.type !== b.type) {
+                            return a.type === 'folder' ? -1 : 1;
+                        }
+                        return a.name.localeCompare(b.name);
+                    });
+
+                    data.forEach(item => {
+                        const childPath = dirPath ? `${dirPath}/${item.name}` : item.name;
+                        const childItem = createTreeItem(item, childPath, depth);
+                        childrenDiv.appendChild(childItem);
+                    });
+
+                    parentDiv.appendChild(childrenDiv);
+                })
+                .catch(err => console.error('Failed to load children:', err));
+        }
+
+        function loadFileTree() {
+            if (viewMode !== 'tree') return;
+
+            const fileList = document.getElementById('fileList');
+            fileList.innerHTML = '';
+
+            fetch('/api/list?dir=')
+                .then(res => res.json())
+                .then(data => {
+                    data.sort((a, b) => {
+                        if (a.type !== b.type) {
+                            return a.type === 'folder' ? -1 : 1;
+                        }
+                        return a.name.localeCompare(b.name);
+                    });
+
+                    data.forEach(item => {
+                        const itemElement = createTreeItem(item, item.name, 0);
+                        fileList.appendChild(itemElement);
+                    });
+                })
+                .catch(err => console.error('Failed to load tree:', err));
+        }
+
+        function loadFlatFolder(dir = "") {
+            if (viewMode !== 'flat') return;
+
+            fetch(`/api/list?dir=${dir}`)
+                .then(res => res.json())
+                .then(data => {
+                    const list = document.getElementById("fileList");
+                    list.innerHTML = "";
+
+                    // Back button
+                    if (dir) {
+                        const backBtn = document.createElement("div");
+                        backBtn.className = "back-button";
+                        backBtn.innerHTML = '<span style="margin-right: 8px;">←</span>Back';
+                        backBtn.onclick = () => {
+                            const parts = dir.split("/").filter(Boolean);
+                            parts.pop();
+                            currentDir = parts.join("/");
+                            loadFlatFolder(currentDir);
+                        };
+                        list.appendChild(backBtn);
+                    }
+
+                    data.sort((a, b) => {
+                        if (a.type !== b.type) {
+                            return a.type === 'folder' ? -1 : 1;
+                        }
+                        return a.name.localeCompare(b.name);
+                    });
+
+                    data.forEach(item => {
+                        const fullPath = dir ? `${dir}/${item.name}` : item.name;
+                        const row = document.createElement("div");
+                        row.className = "tree-item";
+
+                        const icon = document.createElement("img");
+                        icon.className = "tree-icon";
+                        icon.src = getIconURL(item.name, item.type === 'folder');
+                        icon.width = 16;
+                        icon.height = 16;
+                        icon.style.objectFit = 'contain';
+
+                        const label = document.createElement("span");
+                        label.className = "tree-label";
+                        label.textContent = item.name;
+
+                        row.appendChild(icon);
+                        row.appendChild(label);
+                        list.appendChild(row);
+
+                        if (item.type === "folder") {
+                            row.onclick = () => {
+                                selectItem(row, fullPath, false);
+                            };
+                            row.ondblclick = () => {
+                                currentDir = fullPath;
+                                loadFlatFolder(fullPath);
+                            };
+                        } else {
+                            row.onclick = () => {
+                                selectItem(row, fullPath, true);
+                                openFile(fullPath);
+                            };
+                        }
+                    });
+                })
+                .catch(err => console.error('Failed to load folder:', err));
+        }
+
+        function switchToTreeView() {
+            viewMode = 'tree';
+            document.getElementById('treeView').classList.add('active');
+            document.getElementById('flatView').classList.remove('active');
+            clearSelection();
+            loadFileTree();
+        }
+
+        function switchToFlatView() {
+            viewMode = 'flat';
+            document.getElementById('flatView').classList.add('active');
+            document.getElementById('treeView').classList.remove('active');
+            clearSelection();
+            loadFlatFolder(currentDir);
+        }
+
+        function openFile(path) {
+            fetch(`/api/read?path=${path}`)
+                .then(res => res.text())
+                .then(content => {
+                    if (window.editor) {
+                        window.editor.setValue(content);
+                    }
+                    document.getElementById("filename").textContent = path;
+                    currentPath = path;
+                })
+                .catch(err => {
+                    console.error('Failed to open file:', err);
+                    alert('Failed to open file: ' + err.message);
+                });
+        }
+
+        function autoSave() {
+            if (!currentPath || !window.editor) return;
+            const content = window.editor.getValue();
+            fetch("/api/save", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ path: currentPath, content }),
+            }).catch(err => console.error('Auto-save failed:', err));
+        }
+
+        function createEntry() {
+            const name = document.getElementById("newPath").value.trim();
+            const type = document.getElementById("newType").value;
+            if (!name) return alert("Please enter a name");
+
+            const fullPath = currentDir ? `${currentDir}/${name}` : name;
+
+            fetch("/api/create", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ path: fullPath, type })
+            })
+                .then(res => {
+                    if (!res.ok) {
+                        return res.text().then(text => {
+                            throw new Error(text);
+                        });
+                    }
+                    // Refresh current view
+                    if (viewMode === 'tree') {
+                        loadFileTree();
+                    } else {
+                        loadFlatFolder(currentDir);
+                    }
+                    document.getElementById("newPath").value = "";
+                })
+                .catch(err => {
+                    console.error('Failed to create entry:', err);
+                    alert('Failed to create entry: ' + err.message);
+                });
+        }
+
+        function deleteSelected() {
+            if (!selectedItem) return alert("Select a file or folder first");
+
+            const path = selectedItem.path;
+            if (!confirm(`Are you sure you want to delete "${path}"?`)) return;
+
+            fetch("/api/delete", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ path })
+            })
+                .then(res => {
+                    if (!res.ok) {
+                        return res.text().then(text => {
+                            throw new Error(text);
+                        });
+                    }
+
+                    // Clear editor if deleted file was open
+                    if (currentPath === path) {
+                        if (window.editor) {
+                            window.editor.setValue("");
+                        }
+                        document.getElementById("filename").textContent = "No file selected";
+                        currentPath = "";
+                    }
+
+                    // Refresh current view
+                    if (viewMode === 'tree') {
+                        loadFileTree();
+                    } else {
+                        loadFlatFolder(currentDir);
+                    }
+
+                    clearSelection();
+                })
+                .catch(err => {
+                    console.error('Failed to delete:', err);
+                    alert('Failed to delete: ' + err.message);
+                });
+        }
+
+        // Initialize Monaco Editor
+        require.config({
+            paths: {
+                vs: "https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.34.1/min/vs"
+            }
+        });
+
+        require(["vs/editor/editor.main"], function () {
+            window.editor = monaco.editor.create(document.getElementById("monaco"), {
+                value: "",
+                language: "python",
+                theme: "vs-dark",
+                automaticLayout: true,
+                fontSize: 14,
+                lineNumbers: "on",
+                roundedSelection: false,
+                scrollBeyondLastLine: false,
+                readOnly: false,
+                minimap: { enabled: true }
+            });
+
+            window.editor.onDidChangeModelContent(() => {
+                clearTimeout(window._autosave);
+                window._autosave = setTimeout(autoSave, 1000);
+            });
+
+            // Load initial file tree
+            loadFileTree();
+        });
+
+        // Handle Enter key in create input
+        document.getElementById('newPath').addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') {
+                createEntry();
+            }
+        });
+    </script>
+</body>
+
+</html>
