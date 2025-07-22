@@ -14,6 +14,7 @@ let isTerminalConnected = false;
 const ICONS = {
     folder: "vscode-icons:default-folder",
     folderOpen: "vscode-icons:default-folder-opened",
+
     py: "vscode-icons:file-type-python",
     js: "vscode-icons:file-type-js-official",
     jsx: "vscode-icons:file-type-reactjs",
@@ -43,6 +44,27 @@ const ICONS = {
     go: "vscode-icons:file-type-go",
     rs: "vscode-icons:file-type-rust",
     rb: "vscode-icons:file-type-ruby",
+
+    sh: "vscode-icons:file-type-shell",
+    csv: "vscode-icons:file-type-csv",
+    log: "vscode-icons:file-type-log",
+    dockerfile: "vscode-icons:file-type-docker",
+    dotenv: "vscode-icons:file-type-env",
+    env: "vscode-icons:file-type-env",
+    makefile: "vscode-icons:file-type-makefile",
+    ipynb: "vscode-icons:file-type-jupyter",
+    vue: "vscode-icons:file-type-vue",
+    svelte: "vscode-icons:file-type-svelte",
+    prisma: "vscode-icons:file-type-prisma",
+    toml: "vscode-icons:file-type-toml",
+    ini: "vscode-icons:file-type-settings",
+    lock: "vscode-icons:file-type-lock",
+    sql: "vscode-icons:file-type-sql",
+    scss: "vscode-icons:file-type-scss",
+    less: "vscode-icons:file-type-less",
+    yml: "vscode-icons:file-type-yaml",
+    yaml: "vscode-icons:file-type-yaml",
+
     default: "vscode-icons:default-file"
 };
 
@@ -52,6 +74,7 @@ let activeTerminalIdx = 0;
 navigator.permissions.query({ name: 'clipboard-write' }).then(result => {
     console.log(result.state); // "granted", "prompt", or "denied"
 });
+
 
 
 function addTerminalTab() {
@@ -141,6 +164,7 @@ function appendToTerminalTab(idx, text, type = 'normal') {
     terminals[idx].output.appendChild(wrapper);
     terminals[idx].output.scrollTop = terminals[idx].output.scrollHeight;
 }
+
 
 
 function getIconURL(fileName, isFolder, isExpanded = false) {
@@ -380,21 +404,60 @@ function switchToFlatView() {
     loadFlatFolder(currentDir);
 }
 
+
+function getLanguageFromPath(path) {
+    const ext = path.split('.').pop().toLowerCase();
+    const map = {
+        py: 'python',
+        js: 'javascript',
+        jsx: 'javascript',
+        ts: 'typescript',
+        tsx: 'typescript',
+        html: 'html',
+        css: 'css',
+        json: 'json',
+        md: 'markdown',
+        cpp: 'cpp',
+        c: 'c',
+        java: 'java',
+        php: 'php',
+        go: 'go',
+        rs: 'rust',
+        rb: 'ruby',
+        xml: 'xml',
+        yaml: 'yaml',
+        yml: 'yaml',
+        sh: 'shell',
+        txt: 'plaintext'
+    };
+    return map[ext] || 'plaintext';
+}
+
+
 function openFile(path) {
     fetch(`/api/read?path=${path}`)
         .then(res => res.text())
         .then(content => {
             if (window.editor) {
-                window.editor.setValue(content);
+                const ext = path.split('.').pop();
+                const lang = getLanguageFromPath(ext);
+
+                const oldModel = window.editor.getModel();
+                const newModel = monaco.editor.createModel(content, lang);
+                window.editor.setModel(newModel);
+
+                if (oldModel) oldModel.dispose(); // cleanup
+
+                document.getElementById("filename").textContent = path;
+                currentPath = path;
             }
-            document.getElementById("filename").textContent = path;
-            currentPath = path;
         })
         .catch(err => {
             console.error('Failed to open file:', err);
             alert('Failed to open file: ' + err.message);
         });
 }
+
 
 function autoSave() {
     if (!currentPath || !window.editor) return;
@@ -735,11 +798,37 @@ require.config({
     }
 });
 
+
+
+
 require(["vs/editor/editor.main"], function () {
+    monaco.editor.defineTheme('one-dark-pro', {
+        base: 'vs-dark',
+        inherit: true,
+        rules: [
+            { token: 'comment', foreground: '6A9955', fontStyle: 'italic' },
+            { token: 'keyword', foreground: 'C586C0' },
+            { token: 'number', foreground: 'B5CEA8' },
+            { token: 'string', foreground: 'CE9178' },
+            { token: 'variable', foreground: '9CDCFE' },
+            { token: 'type', foreground: '4EC9B0' },
+            { token: 'function', foreground: 'DCDCAA' },
+        ],
+        colors: {
+            'editor.background': '#1E1E1E',
+            'editor.foreground': '#D4D4D4',
+            'editorLineNumber.foreground': '#858585',
+            'editorCursor.foreground': '#AEAFAD',
+            'editor.lineHighlightBackground': '#2B2B2B',
+            'editor.selectionBackground': '#264F78',
+            'editor.inactiveSelectionBackground': '#3A3D41'
+        }
+    });
+
     window.editor = monaco.editor.create(document.getElementById("monaco"), {
         value: "",
         language: "python",
-        theme: "vs-dark",
+        theme: "one-dark-pro", // Use the custom theme here
         automaticLayout: true,
         fontSize: 14,
         lineNumbers: "on",
@@ -748,6 +837,14 @@ require(["vs/editor/editor.main"], function () {
         readOnly: false,
         minimap: { enabled: true }
     });
+
+    // const geminiBtn = document.createElement("button");
+    // geminiBtn.textContent = "⚡ Gemini Autocomplete";
+    // geminiBtn.style.marginTop = "10px";
+    // geminiBtn.onclick = () => runGeminiCompletion();
+    // document.getElementById("editor-buttons").appendChild(geminiBtn);
+
+    window.editor.focus();
 
     window.editor.onDidChangeModelContent(() => {
         clearTimeout(window._autosave);
@@ -875,3 +972,73 @@ document.addEventListener('DOMContentLoaded', function () {
         e.preventDefault();
     });
 });
+
+
+//  $$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$
+async function runGeminiCompletion() {
+    if (!window.editor) return alert("Editor not ready");
+
+    const model = window.editor.getModel();
+    const position = window.editor.getPosition();
+    const totalLines = model.getLineCount();
+
+    const startLine = Math.max(1, position.lineNumber - 5);
+    const endLine = Math.min(totalLines, position.lineNumber);
+
+    // Extract 2 lines above and 2 lines below the cursor
+    let contextLines = [];
+    for (let i = startLine; i <= endLine; i++) {
+        contextLines.push(model.getLineContent(i));
+    }
+    const prompt = contextLines.join('\n');
+
+    try {
+        const res = await fetch("/api/autocomplete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ prompt }),
+        });
+
+        const data = await res.json();
+        if (!data || !data.completion) return alert("No response from Gemini.");
+
+        let completion = data.completion;
+        console.log(completion)
+        const match = completion.match(/```(?:[a-zA-Z]*)?\n([\s\S]*?)```/);
+        if (match) {
+            completion = match[1];
+        }
+
+        window.editor.executeEdits("gemini", [
+            {
+                range: new monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column),
+                text: completion,
+                forceMoveMarkers: true
+            }
+        ]);
+        window.editor.focus();
+    } catch (err) {
+        console.error("Gemini request failed:", err);
+        alert("Autocomplete failed: " + err.message);
+    }
+}
+
+document.addEventListener("keydown", (event) => {
+    // Check if Ctrl (or Meta for Mac) + Space is pressed
+    if (event.shiftKey && event.altKey) { //code === "Space"
+        event.preventDefault(); // Prevent default browser behavior (like scrolling)
+        runGeminiCompletion();
+    }
+});
+
+
+// ###########################################################
+
+
+
+
+
+
+
+
+

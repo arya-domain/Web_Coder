@@ -1,3 +1,5 @@
+import sys
+sys.path.append('/data/user/home/swalpa@agemc.ac.in/hoster/Web_Coder/web_ide')
 from flask import Flask, request, jsonify, send_from_directory
 from flask_socketio import SocketIO, emit, join_room, leave_room
 import os
@@ -11,12 +13,68 @@ import struct
 import fcntl
 import signal
 from collections import defaultdict
+####################################################################################################
+
+import os
+import random
+import time
+from google import genai
+from google.genai import types
+
+# List of Gemini API keys
+GEMINI_API_KEYS = [
+    "AIzaSyB9AgLLY4nhreqx5y2gD6I1fksf82HFgQQ",
+    "AIzaSyBlvVU3wJC_5DHa588MmCwO1LW0U7KzwEs",
+    "AIzaSyB1YkpzI3E7o-AYPcItRWGFnerz06h37zg",
+    "AIzaSyC4Y9U4IXTIsl1Tp66fg-8RHhmjgGDLVCw",
+    "AIzaSyAgTHuJIneVcwCTDSfld2j5JVUl4W11fmw",
+    "AIzaSyDDuVLXxpcCs2zQBFpsfTmmsUPnUX1vuZc",
+    "AIzaSyB_elJjhYGVIlM2k9vSyQdFq8H_hIAa6eQ",
+    "AIzaSyB88I37f2aRe15FsorX9i0MggAfHC4YfAs",
+    "AIzaSyCV3XYUpg0UdsL9qGaLKraX89HSf-71zdA",
+    "AIzaSyDTZJs9x68Ru3kKz_o4RCwx3i8e7m8wuNI",
+    "AIzaSyDl1d7IS9JuFNk7SXUqSrqkSHlnfQFSxD8"
+]
+
+# Random API key selector
+def get_random_key():
+    return random.choice(GEMINI_API_KEYS)
+
+# Create a GenAI client with one API key
+def create_client(api_key: str = None) -> genai.Client:
+    if api_key:
+        return genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(api_version='v1alpha')  # For Developer API
+        )
+    else:
+        return genai.Client()  # For Vertex AI if env vars are set
+
+# Generate text response from Gemini
+def generate_completion(prompt: str, max_retries: int = 30000) -> str:
+    for _ in range(len(GEMINI_API_KEYS)):
+        api_key = get_random_key()
+        try:
+            client = create_client(api_key)
+            response = client.models.generate_content(
+                model='gemini-2.0-flash',
+                contents=prompt
+            )
+            return response.text.strip()
+        except Exception as e:
+            print(f"[Gemini Error with key {api_key[:10]}...]: {e}")
+            time.sleep(1)
+            continue
+    return "Error: All Gemini API keys failed."
+
+
+####################################################################################################
 
 app = Flask(__name__, static_folder="static")
 app.config['SECRET_KEY'] = 'your-secret-key-here'
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
-WORKSPACE_DIR = os.path.abspath("/")
+WORKSPACE_DIR = os.getcwd()
 
 # Store terminal sessions
 terminal_sessions = defaultdict(dict)
@@ -320,6 +378,24 @@ def handle_terminal_resize(data):
     if session_id in terminal_sessions:
         terminal = terminal_sessions[session_id]['terminal']
         terminal.resize(data['cols'], data['rows'])
+
+
+@app.route("/api/autocomplete", methods=["POST"])
+def autocomplete():
+    data = request.get_json()
+    prompt = data.get("prompt", "")
+
+    if not prompt:
+        return jsonify({"error": "Prompt is required"}), 400
+
+    prompt = "Write the next 2-5 lines code to autocomplete just return the code and nothing else. You must focus on the ending of the current below code and suggest accordingly. Only return code.\n\n Code- ```"+prompt+"```"
+    
+    try:
+        completion = generate_completion(prompt)
+        return jsonify({"completion": completion})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 
 
 if __name__ == "__main__":
