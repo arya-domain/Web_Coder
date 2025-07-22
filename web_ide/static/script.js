@@ -46,6 +46,103 @@ const ICONS = {
     default: "vscode-icons:default-file"
 };
 
+let terminals = [];
+let activeTerminalIdx = 0;
+
+navigator.permissions.query({ name: 'clipboard-write' }).then(result => {
+    console.log(result.state); // "granted", "prompt", or "denied"
+});
+
+
+function addTerminalTab() {
+    const idx = terminals.length;
+    // Create container for output+input
+    const tabPanel = document.createElement('div');
+    tabPanel.className = 'terminal-tab-panel';
+    tabPanel.innerHTML = `
+        <div class="terminal-output" id="terminal-output-${idx}" style="flex:1; padding:8px; overflow-y:auto; background:#0c0c0c; color:#e0e0e0;"></div>
+        <input type="text" class="terminal-input" id="terminal-input-${idx}" placeholder="Type command and press Enter...">
+    `;
+    document.getElementById('terminal-tabs-content').appendChild(tabPanel);
+
+    // Create socket & history for this terminal
+    let socket = io();
+    let history = [], hidx = -1;
+    socket.on('connect', () => { socket.emit('start_terminal', { working_dir: currentDir || '' }); });
+    socket.on('terminal_output', d => {
+        appendToTerminalTab(idx, d.data);
+    });
+    socket.on('terminal_error', d => {
+        appendToTerminalTab(idx, d.message, 'error');
+    });
+
+    // Keyboard handler (arrow/history etc)
+    let input = tabPanel.querySelector('.terminal-input');
+    input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+            const command = input.value;
+            if (command.trim()) {
+                history.push(command);
+                hidx = history.length;
+                socket.emit('terminal_input', { data: command + '\n' });
+                input.value = '';
+            }
+        } else if (e.key == "ArrowUp") { e.preventDefault(); if (hidx > 0) { input.value = history[--hidx]; } }
+        else if (e.key == "ArrowDown") { e.preventDefault(); if (hidx < history.length - 1) input.value = history[++hidx]; else hidx = history.length, input.value = ''; }
+    });
+
+    terminals.push({ socket, panel: tabPanel, input, output: tabPanel.querySelector('.terminal-output'), history, hidx });
+
+    renderTerminalTabs();
+    setActiveTerminal(idx);
+}
+
+function renderTerminalTabs() {
+    const bar = document.getElementById('terminal-tabs');
+    bar.innerHTML = '';
+    terminals.forEach((term, idx) => {
+        const btn = document.createElement('button');
+        btn.className = 'terminal-tab-btn' + (activeTerminalIdx == idx ? ' active' : '');
+        btn.textContent = 'T' + (idx + 1);
+        btn.onclick = () => setActiveTerminal(idx);
+        // Close button
+        const close = document.createElement('span');
+        close.innerHTML = '&times;';
+        close.className = 'terminal-tab-close';
+        close.onclick = (e) => { e.stopPropagation(); closeTerminalTab(idx); }
+        btn.appendChild(close);
+        bar.appendChild(btn);
+    });
+}
+
+function setActiveTerminal(idx) {
+    activeTerminalIdx = idx;
+    [...document.querySelectorAll('.terminal-tab-panel')].forEach((el, i) => el.classList.toggle('active', i == idx));
+    renderTerminalTabs();
+}
+
+function closeTerminalTab(idx) {
+    terminals[idx].socket.disconnect();
+    terminals.splice(idx, 1);
+    const panels = document.querySelectorAll('.terminal-tab-panel');
+    panels[idx].remove();
+    if (activeTerminalIdx >= terminals.length) activeTerminalIdx = terminals.length - 1;
+    setActiveTerminal(activeTerminalIdx);
+    renderTerminalTabs();
+}
+
+function appendToTerminalTab(idx, text, type = 'normal') {
+    const ansi_up = new AnsiUp();
+    ansi_up.use_classes = false;
+    const html = ansi_up.ansi_to_html(text);
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = html;
+    if (type === 'error') wrapper.style.color = '#f48771';
+    terminals[idx].output.appendChild(wrapper);
+    terminals[idx].output.scrollTop = terminals[idx].output.scrollHeight;
+}
+
+
 function getIconURL(fileName, isFolder, isExpanded = false) {
     if (isFolder) {
         const iconName = isExpanded ? ICONS.folderOpen : ICONS.folder;
@@ -444,6 +541,19 @@ function initializeTerminal() {
 
     // Terminal copy/paste functionality
     const terminalOutput = document.getElementById('terminal-output');
+    terminalOutput.style.userSelect = 'text';
+    terminalOutput.style.webkitUserSelect = 'text';  // for Safari
+
+    // terminalOutput.addEventListener('mouseup', () => {
+    //     const selection = window.getSelection();
+    //     const selectedText = selection.toString().trim();
+    //     if (selectedText.length > 0) {
+    //         navigator.clipboard.writeText(selectedText).catch(err => {
+    //             console.error("Clipboard write failed", err);
+    //         });
+    //     }
+    // });
+
 
     // Enable text selection
     terminalOutput.style.userSelect = 'text';
@@ -648,15 +758,120 @@ require(["vs/editor/editor.main"], function () {
     loadFileTree();
 });
 
-// Initialize terminal and resize functionality
+
 document.addEventListener('DOMContentLoaded', function () {
     initializeTerminal();
     initializeResize();
+    addTerminalTab();
 });
+
 
 // Handle Enter key in create input
 document.getElementById('newPath').addEventListener('keypress', function (e) {
     if (e.key === 'Enter') {
         createEntry();
     }
+});
+
+// Terminal resize functionality
+let isResizing = false;
+let startY = 0;
+let startHeight = 0;
+
+document.addEventListener('DOMContentLoaded', function () {
+    const resizeHandle = document.getElementById('resizeHandle');
+    const terminal = document.getElementById('terminal');
+    const editorTerminalContainer = document.querySelector('.editor-terminal-container');
+
+    if (!resizeHandle || !terminal) {
+        console.error('Resize handle or terminal not found');
+        return;
+    }
+
+    // Mouse down on resize handle
+    resizeHandle.addEventListener('mousedown', function (e) {
+        isResizing = true;
+        startY = e.clientY;
+        startHeight = parseInt(document.defaultView.getComputedStyle(terminal).height, 10);
+
+        // Prevent text selection during resize
+        document.body.style.userSelect = 'none';
+        document.body.style.cursor = 'row-resize';
+
+        e.preventDefault();
+    });
+
+    // Mouse move - handle resizing
+    document.addEventListener('mousemove', function (e) {
+        if (!isResizing) return;
+
+        const deltaY = startY - e.clientY; // Inverted because we want dragging up to increase height
+        const newHeight = startHeight + deltaY;
+
+        // Set min and max heights
+        const minHeight = 80;
+        const maxHeight = window.innerHeight * 0.8; // 80% of viewport height
+
+        // Constrain the height
+        const constrainedHeight = Math.max(minHeight, Math.min(newHeight, maxHeight));
+
+        // Apply the new height
+        terminal.style.height = constrainedHeight + 'px';
+
+        e.preventDefault();
+    });
+
+    // Mouse up - stop resizing
+    document.addEventListener('mouseup', function () {
+        if (isResizing) {
+            isResizing = false;
+            document.body.style.userSelect = '';
+            document.body.style.cursor = '';
+        }
+    });
+
+    // Handle window resize to maintain proper constraints
+    window.addEventListener('resize', function () {
+        const currentHeight = parseInt(document.defaultView.getComputedStyle(terminal).height, 10);
+        const maxHeight = window.innerHeight * 0.8;
+
+        if (currentHeight > maxHeight) {
+            terminal.style.height = maxHeight + 'px';
+        }
+    });
+
+    // Double-click on resize handle to reset to default height
+    resizeHandle.addEventListener('dblclick', function () {
+        terminal.style.height = '300px';
+    });
+});
+
+// Alternative touch support for mobile devices
+document.addEventListener('DOMContentLoaded', function () {
+    const resizeHandle = document.getElementById('resizeHandle');
+    const terminal = document.getElementById('terminal');
+
+    if (!resizeHandle || !terminal) return;
+
+    let touchStartY = 0;
+    let touchStartHeight = 0;
+
+    resizeHandle.addEventListener('touchstart', function (e) {
+        touchStartY = e.touches[0].clientY;
+        touchStartHeight = parseInt(document.defaultView.getComputedStyle(terminal).height, 10);
+        e.preventDefault();
+    });
+
+    resizeHandle.addEventListener('touchmove', function (e) {
+        const touchY = e.touches[0].clientY;
+        const deltaY = touchStartY - touchY;
+        const newHeight = touchStartHeight + deltaY;
+
+        const minHeight = 80;
+        const maxHeight = window.innerHeight * 0.8;
+        const constrainedHeight = Math.max(minHeight, Math.min(newHeight, maxHeight));
+
+        terminal.style.height = constrainedHeight + 'px';
+        e.preventDefault();
+    });
 });

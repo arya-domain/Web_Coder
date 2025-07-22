@@ -11,11 +11,13 @@ body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     background: #1e1e1e;
     color: #cccccc;
+    overflow: hidden;
 }
 
 .main-container {
     display: flex;
     flex: 1;
+    min-height: 0;
 }
 
 #sidebar {
@@ -24,6 +26,7 @@ body {
     border-right: 1px solid #3c3c3c;
     display: flex;
     flex-direction: column;
+    flex-shrink: 0;
 }
 
 .sidebar-header {
@@ -175,35 +178,72 @@ body {
     flex: 1;
     display: flex;
     flex-direction: column;
+    min-width: 0;
+    min-height: 0;
 }
 
 .editor-terminal-container {
-    height: auto;
     flex: 1;
     display: flex;
     flex-direction: column;
+    min-height: 0;
+    position: relative;
 }
 
+/* FIXED RESIZE HANDLE - Key improvement here */
 .resize-handle {
-    height: 4px;
+    height: 6px;
     background: #3c3c3c;
     cursor: row-resize;
     transition: background-color 0.2s;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 10;
+    /* Ensure it's always visible and clickable */
+    min-height: 6px;
+    user-select: none;
 }
 
 .resize-handle:hover {
     background: #007acc;
 }
 
+.resize-handle:active {
+    background: #1177bb;
+}
+
+/* Add visual indicator for resize handle */
+.resize-handle::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 30px;
+    height: 2px;
+    background: #666;
+    border-radius: 1px;
+}
+
+.resize-handle:hover::before {
+    background: #007acc;
+}
+
+/* FIXED TERMINAL CONTAINER - Key improvement */
 #terminal {
     background-color: #1e1e1e;
     color: white;
     display: flex;
     flex-direction: column;
     border-top: 1px solid #444;
+    /* Set initial height with min/max constraints */
     height: 300px;
     min-height: 100px;
+    max-height: calc(80vh - 100px);
+    flex-shrink: 0;
     overflow: hidden;
+    /* Ensure proper resize behavior */
+    resize: vertical;
 }
 
 .terminal-header {
@@ -213,16 +253,28 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-shrink: 0;
+    min-height: 36px;
 }
 
 .terminal-title {
     font-size: 13px;
     color: #cccccc;
+    flex-shrink: 0;
+}
+
+.terminal-tabs {
+    display: flex;
+    gap: 2px;
+    margin: 0 15px;
+    flex: 1;
+    overflow-x: auto;
 }
 
 .terminal-controls {
     display: flex;
     gap: 4px;
+    flex-shrink: 0;
 }
 
 .terminal-btn {
@@ -233,12 +285,95 @@ body {
     color: #cccccc;
     font-size: 11px;
     cursor: pointer;
+    white-space: nowrap;
 }
 
 .terminal-btn:hover {
     background: #4a4a4a;
 }
 
+.terminal-tab-btn {
+    background: #464647;
+    color: #fff;
+    border: 1px solid #333;
+    border-radius: 3px 3px 0 0;
+    padding: 4px 10px;
+    font-size: 11px;
+    cursor: pointer;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+
+.terminal-tab-btn.active {
+    background: #0e639c;
+    color: #fff;
+    border-bottom: 1px solid #0e639c;
+}
+
+.terminal-tab-close {
+    margin-left: 6px;
+    color: #bbb;
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    padding: 0 2px;
+}
+
+.terminal-tab-close:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+}
+
+#terminal-tabs-content {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.terminal-tab-panel {
+    display: none;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.terminal-tab-panel.active {
+    display: flex;
+}
+
+.terminal-tab-panel .terminal-output {
+    flex: 1;
+    padding: 8px;
+    overflow-y: auto;
+    font-family: 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    background: #0c0c0c;
+    color: #e0e0e0;
+    min-height: 0;
+}
+
+.terminal-tab-panel .terminal-input {
+    border: none;
+    background: #1e1e1e;
+    color: #e0e0e0;
+    font-family: 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
+    font-size: 13px;
+    padding: 8px;
+    outline: none;
+    border-top: 1px solid #3c3c3c;
+    flex-shrink: 0;
+    min-height: 32px;
+}
+
+/* Legacy single terminal styles (for backwards compatibility) */
 #terminal-output {
     flex: 1;
     padding: 8px;
@@ -250,18 +385,20 @@ body {
     word-wrap: break-word;
     background: #0c0c0c;
     color: #e0e0e0;
+    min-height: 0;
 }
-
 
 #terminal-input {
     border: none;
-    background: transparent;
+    background: #1e1e1e;
     color: #e0e0e0;
     font-family: 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
     font-size: 13px;
-    padding: 4px 8px;
+    padding: 8px;
     outline: none;
     border-top: 1px solid #3c3c3c;
+    flex-shrink: 0;
+    min-height: 32px;
 }
 
 #filename {
@@ -270,10 +407,14 @@ body {
     font-size: 13px;
     border-bottom: 1px solid #3c3c3c;
     color: #cccccc;
+    flex-shrink: 0;
+    min-height: 36px;
 }
 
 #monaco {
     flex: 1;
+    min-height: 0;
+    min-width: 0;
 }
 
 .view-toggle {
@@ -298,19 +439,57 @@ body {
 }
 
 /* Scrollbar styling */
-#fileList::-webkit-scrollbar {
+#fileList::-webkit-scrollbar,
+.terminal-output::-webkit-scrollbar,
+#terminal-output::-webkit-scrollbar {
     width: 8px;
 }
 
-#fileList::-webkit-scrollbar-track {
+#fileList::-webkit-scrollbar-track,
+.terminal-output::-webkit-scrollbar-track,
+#terminal-output::-webkit-scrollbar-track {
     background: #252526;
 }
 
-#fileList::-webkit-scrollbar-thumb {
+#fileList::-webkit-scrollbar-thumb,
+.terminal-output::-webkit-scrollbar-thumb,
+#terminal-output::-webkit-scrollbar-thumb {
     background: #464647;
     border-radius: 4px;
 }
 
-#fileList::-webkit-scrollbar-thumb:hover {
+#fileList::-webkit-scrollbar-thumb:hover,
+.terminal-output::-webkit-scrollbar-thumb:hover,
+#terminal-output::-webkit-scrollbar-thumb:hover {
     background: #5a5a5a;
+}
+
+.vertical-resize-handle {
+    width: 4px;
+    background: #3c3c3c;
+    cursor: col-resize;
+    transition: background-color 0.2s;
+    z-index: 10;
+    flex-shrink: 0;
+}
+
+/* Additional improvements for better resize behavior */
+.main-container {
+    overflow: hidden;
+}
+
+/* Ensure proper flexbox behavior during resize */
+.editor-terminal-container #monaco {
+    min-height: 200px; /* Ensure editor doesn't disappear */
+}
+
+/* Better visual feedback during resize */
+.resize-handle:hover::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 122, 204, 0.1);
 }

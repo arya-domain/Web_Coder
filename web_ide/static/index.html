@@ -30,13 +30,14 @@
             <div id="fileList"></div>
         </div>
 
+        <div id="verticalResizeHandle" class="vertical-resize-handle"></div>
         <div id="editor">
             <div class="editor-terminal-container">
                 <div id="filename">No file selected</div>
                 <div id="monaco"></div>
             </div>
             <div class="resize-handle" id="resizeHandle"></div>
-            <div id="terminal">
+            <!-- <div id="terminal">
                 <div class="terminal-header">
                     <span class="terminal-title">TERMINAL</span>
                     <div class="terminal-controls">
@@ -46,7 +47,23 @@
                 </div>
                 <div id="terminal-output"></div>
                 <input type="text" id="terminal-input" placeholder="Type command and press Enter...">
+            </div> -->
+            <div id="terminal">
+                <div class="terminal-header">
+                    <span class="terminal-title">TERMINAL</span>
+                    <div id="terminal-tabs" class="terminal-tabs">
+                        <!-- Individual tab buttons will be inserted here -->
+                    </div>
+                    <div class="terminal-controls">
+                        <button class="terminal-btn" onclick="clearTerminal()">Clear</button>
+                        <button class="terminal-btn" onclick="restartTerminal()">Restart</button>
+                        <button class="terminal-btn" onclick="addTerminalTab()">+</button>
+                    </div>
+                </div>
+                <div id="terminal-tabs-content">
+                </div>
             </div>
+
         </div>
     </div>
 
