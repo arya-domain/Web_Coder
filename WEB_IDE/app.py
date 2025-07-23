@@ -117,7 +117,8 @@ class TerminalSession:
                 stderr=self.slave_fd,
                 preexec_fn=os.setsid,
                 env=env,
-                cwd=self.working_dir
+                cwd=self.working_dir,
+                bufsize=0 
             )
             
             # Close slave fd in parent process
@@ -140,13 +141,12 @@ class TerminalSession:
                 fcntl.ioctl(self.master_fd, termios.TIOCSWINSZ, size)
             except:
                 pass
-    
     def _read_output(self):
         try:
             while True:
                 if self.master_fd is None:
                     break
-                    
+
                 # Use select to check if data is available
                 ready, _, _ = select.select([self.master_fd], [], [], 0.1)
                 if ready:
@@ -158,14 +158,45 @@ class TerminalSession:
                                 'session_id': self.session_id,
                                 'data': output
                             }, to=self.session_id)
-                        else:
-                            break
                     except OSError:
                         break
+
+                # Check if the child process has exited
+                retcode = self.process.poll()
+                if retcode is not None:
+                    break
+
         except Exception as e:
             print(f"Terminal read error: {e}")
         finally:
             self._cleanup()
+
+    # def _read_output(self):
+    #     try:
+    #         while True:
+    #             if self.master_fd is None:
+    #                 break
+                    
+    #             # Use select to check if data is available
+    #             ready, _, _ = select.select([self.master_fd], [], [], 0.1)
+    #             if ready:
+    #                 try:
+    #                     data = os.read(self.master_fd, 1024)
+    #                     if data:
+    #                         output = data.decode('utf-8', errors='replace')
+    #                         socketio.emit('terminal_output', {
+    #                             'session_id': self.session_id,
+    #                             'data': output
+    #                         }, to=self.session_id)
+    #                     else:
+    #                         # break
+    #                         time.sleep(0.1)
+    #                 except OSError:
+    #                     break
+    #     except Exception as e:
+    #         print(f"Terminal read error: {e}")
+    #     finally:
+    #         self._cleanup()
     
     def write_input(self, data):
         if self.master_fd:
@@ -396,6 +427,97 @@ def autocomplete():
         return jsonify({"completion": completion})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/rename", methods=["POST"])
+def rename():
+    data = request.get_json()
+    old_path = data.get("oldPath", "").strip()
+    new_name = data.get("newName", "").strip()
+
+    try:
+        old_abs = safe_join(WORKSPACE_DIR, old_path)
+        parent_dir = os.path.dirname(old_abs)
+        new_abs = safe_join(WORKSPACE_DIR, os.path.join(parent_dir, new_name))
+
+        if not os.path.exists(old_abs):
+            return "Source does not exist", 404
+
+        if os.path.exists(new_abs):
+            return "Destination already exists", 400
+
+        os.rename(old_abs, new_abs)
+        return "Renamed", 200
+
+    except ValueError as ve:
+        return f"Security error: {ve}", 403
+    except Exception as e:
+        return f"Rename error: {e}", 500
+
+@app.route("/api/upload", methods=["POST"])
+def upload():
+    if "file" not in request.files:
+        return "No file part", 400
+
+    file = request.files["file"]
+    dest_dir = request.form.get("destination", "").strip()
+
+    if not file:
+        return "No file selected", 400
+
+    try:
+        target_dir = safe_join(WORKSPACE_DIR, dest_dir)
+        os.makedirs(target_dir, exist_ok=True)
+
+        save_path = os.path.join(target_dir, file.filename)
+        file.save(save_path)
+
+        return "Uploaded", 200
+
+    except ValueError as ve:
+        return f"Security error: {ve}", 403
+    except Exception as e:
+        return f"Upload error: {e}", 500
+
+@app.route("/api/download", methods=["GET"])
+def download():
+    rel_path = request.args.get("path", "").strip()
+
+    try:
+        abs_path = safe_join(WORKSPACE_DIR, rel_path)
+        if not os.path.isfile(abs_path):
+            return "File not found", 404
+
+        dir_name = os.path.dirname(abs_path)
+        filename = os.path.basename(abs_path)
+        return send_from_directory(directory=dir_name, path=filename, as_attachment=True)
+
+    except ValueError as ve:
+        return f"Security error: {ve}", 403
+    except Exception as e:
+        return f"Download error: {e}", 500
+
+@app.route("/api/paste", methods=["POST"])
+def paste():
+    data = request.get_json()
+    source = data.get("source", "").strip()
+    destination = data.get("destination", "").strip()
+
+    try:
+        src_abs = safe_join(WORKSPACE_DIR, source)
+        dest_abs = safe_join(WORKSPACE_DIR, destination)
+        dest_final = os.path.join(dest_abs, os.path.basename(src_abs))
+
+        if os.path.isdir(src_abs):
+            shutil.copytree(src_abs, dest_final)
+        else:
+            shutil.copy2(src_abs, dest_final)
+
+        return "Pasted", 200
+
+    except Exception as e:
+        return f"Paste error: {e}", 500
+
 
 
 if __name__ == "__main__":

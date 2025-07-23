@@ -101,7 +101,68 @@ function addTerminalTab() {
 
     // Keyboard handler (arrow/history etc)
     let input = tabPanel.querySelector('.terminal-input');
+
     input.addEventListener('keydown', function (e) {
+        if (e.key === ' ' || e.key === 'Spacebar') {
+            const char = e.key;
+            if (socket && isTerminalConnected) {
+                socket.emit('terminal_input', { data: char });
+            }
+            e.preventDefault();
+        }
+
+        // Ctrl + C => Send SIGINT (simulate)
+        if (e.ctrlKey && e.key === 'c') {
+            e.preventDefault();
+            if (socket && isTerminalConnected) {
+                socket.emit('terminal_input', { data: '\x03' }); // ASCII 3 = Ctrl+C
+            }
+            return;
+        }
+
+        // Ctrl + L => Clear screen
+        if (e.ctrlKey && e.key === 'l') {
+            e.preventDefault();
+            clearTerminal();
+            return;
+        }
+
+        // Ctrl + A => Move cursor to start
+        if (e.ctrlKey && e.key === 'a') {
+            e.preventDefault();
+            input.setSelectionRange(0, 0);
+            return;
+        }
+
+        // Ctrl + E => Move cursor to end
+        if (e.ctrlKey && e.key === 'e') {
+            e.preventDefault();
+            const len = input.value.length;
+            input.setSelectionRange(len, len);
+            return;
+        }
+
+        // Ctrl + U => Clear entire line
+        if (e.ctrlKey && e.key === 'u') {
+            e.preventDefault();
+            input.value = '';
+            return;
+        }
+
+        // Ctrl + K => Clear from cursor to end
+        if (e.ctrlKey && e.key === 'k') {
+            e.preventDefault();
+            const cursor = input.selectionStart;
+            input.value = input.value.slice(0, cursor);
+            return;
+        }
+
+        // Ctrl + D => Simulate detach or exit
+        if (e.ctrlKey && e.key === 'd') {
+            e.preventDefault();
+            socket.emit('terminal_input', { data: '\x04' }); // ASCII 4 = Ctrl+D
+            return;
+        }
         if (e.key === 'Enter') {
             const command = input.value;
             if (command.trim()) {
@@ -110,9 +171,19 @@ function addTerminalTab() {
                 socket.emit('terminal_input', { data: command + '\n' });
                 input.value = '';
             }
-        } else if (e.key == "ArrowUp") { e.preventDefault(); if (hidx > 0) { input.value = history[--hidx]; } }
+        }
+        else if (e.key === ' ') {
+            e.preventDefault(); // Prevent scrolling
+            terminalInput.value += ' '; // Insert space visually
+            const event = new Event('input', { bubbles: true });
+            terminalInput.dispatchEvent(event);
+        }
+        else if (e.key == "ArrowUp") { e.preventDefault(); if (hidx > 0) { input.value = history[--hidx]; } }
         else if (e.key == "ArrowDown") { e.preventDefault(); if (hidx < history.length - 1) input.value = history[++hidx]; else hidx = history.length, input.value = ''; }
     });
+
+    // let input = tabPanel.querySelector('.terminal-input');
+    // setupTerminalInputHandler(input, idx, socket, history);
 
     terminals.push({ socket, panel: tabPanel, input, output: tabPanel.querySelector('.terminal-output'), history, hidx });
 
@@ -607,16 +678,6 @@ function initializeTerminal() {
     terminalOutput.style.userSelect = 'text';
     terminalOutput.style.webkitUserSelect = 'text';  // for Safari
 
-    // terminalOutput.addEventListener('mouseup', () => {
-    //     const selection = window.getSelection();
-    //     const selectedText = selection.toString().trim();
-    //     if (selectedText.length > 0) {
-    //         navigator.clipboard.writeText(selectedText).catch(err => {
-    //             console.error("Clipboard write failed", err);
-    //         });
-    //     }
-    // });
-
 
     // Enable text selection
     terminalOutput.style.userSelect = 'text';
@@ -1025,3 +1086,825 @@ document.addEventListener("keydown", (event) => {
 
 
 
+document.addEventListener('contextmenu', function (e) {
+    const target = e.target.closest('.tree-item');
+    if (target && document.getElementById('fileList').contains(target)) {
+        e.preventDefault();
+        showFileContextMenu(e, target);
+    }
+});
+
+
+let clipboardItem = null; // to support copy/paste
+
+function showFileContextMenu(e, target) {
+    const path = target.querySelector('.tree-label').textContent;
+    const fullPath = selectedItem?.path || path;
+
+    // Clear any existing menu
+    document.querySelector('.file-context-menu')?.remove();
+
+    const menu = document.createElement('div');
+    menu.className = 'file-context-menu';
+    menu.style.position = 'fixed';
+    menu.style.left = e.clientX + 'px';
+    menu.style.top = e.clientY + 'px';
+    menu.style.background = '#2d2d30';
+    menu.style.border = '1px solid #444';
+    menu.style.borderRadius = '4px';
+    menu.style.zIndex = '9999';
+    menu.style.minWidth = '160px';
+    menu.style.boxShadow = '0 2px 5px rgba(0,0,0,0.4)';
+
+    const options = [
+        { label: '<span class="codicon codicon-copy"></span> Copy', action: () => { clipboardItem = fullPath; } },
+        { label: '<span class="codicon codicon-clippy"></span> Paste', action: () => { if (clipboardItem) pasteItem(clipboardItem, fullPath); } },
+        { label: '<span class="codicon codicon-cloud-upload"></span> Upload File', action: () => triggerFileUpload(fullPath) },
+        { label: '<span class="codicon codicon-cloud-download"></span> Download', action: () => downloadFile(fullPath) },
+        { label: '<span class="codicon codicon-link"></span> Copy Path', action: () => navigator.clipboard.writeText(fullPath) },
+        // { label: '<span class="codicon codicon-symbol-key"></span> Copy Relative Path', action: () => navigator.clipboard.writeText(getRelativePath(fullPath)) },
+        { label: '<span class="codicon codicon-edit"></span> Rename', action: () => renameItem(fullPath, target) },
+        { label: '<span class="codicon codicon-trash"></span> Delete', action: () => deleteSelected() }
+    ];
+
+
+    options.forEach(opt => {
+        const div = document.createElement('div');
+        // div.textContent = opt.label;
+        div.innerHTML = opt.label;
+        div.style.padding = '8px 12px';
+        div.style.cursor = 'pointer';
+        div.style.fontSize = '13px';
+        div.style.color = '#ccc';
+        div.addEventListener('mouseover', () => div.style.background = '#094771');
+        div.addEventListener('mouseout', () => div.style.background = 'transparent');
+        div.addEventListener('click', () => {
+            opt.action();
+            menu.remove();
+        });
+        menu.appendChild(div);
+    });
+
+    document.body.appendChild(menu);
+
+    setTimeout(() => {
+        document.addEventListener('click', function removeMenu() {
+            if (document.body.contains(menu)) menu.remove();
+            document.removeEventListener('click', removeMenu);
+        });
+    }, 0);
+}
+
+function pasteItem(srcPath, destDir) {
+    fetch("/api/paste", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source: srcPath, destination: destDir })
+    })
+        .then(res => res.ok ? (viewMode === 'tree' ? loadFileTree() : loadFlatFolder(currentDir)) : Promise.reject(res))
+        .catch(err => alert("Paste failed: " + err.message));
+}
+
+function triggerFileUpload(destinationDir) {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.onchange = () => {
+        const file = input.files[0];
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("destination", destinationDir);
+
+        fetch('/api/upload', {
+            method: 'POST',
+            body: formData
+        }).then(() => {
+            viewMode === 'tree' ? loadFileTree() : loadFlatFolder(currentDir);
+        }).catch(err => alert("Upload failed: " + err.message));
+    };
+    input.click();
+}
+
+function downloadFile(path) {
+    const a = document.createElement('a');
+    a.href = `/api/download?path=${encodeURIComponent(path)}`;
+    a.download = path.split('/').pop();
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+}
+
+function renameItem(path, element) {
+    const newName = prompt("Enter new name:", path.split('/').pop());
+    if (!newName) return;
+
+    fetch('/api/rename', {
+        method: 'POST',
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ oldPath: path, newName })
+    }).then(res => {
+        if (res.ok) {
+            viewMode === 'tree' ? loadFileTree() : loadFlatFolder(currentDir);
+        } else {
+            res.text().then(text => alert("Rename failed: " + text));
+        }
+    }).catch(err => alert("Rename failed: " + err.message));
+}
+
+function getRelativePath(fullPath) {
+    return fullPath.replace(/^.*?\/?/, ''); // Adjust based on project root logic
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+// document.getElementById('runButton').addEventListener('click', () => {
+//     if (!window.editor || !currentPath) return alert("No file open");
+
+//     if (terminals.length === 0) {
+//         addTerminalTab();
+//     }
+
+//     const filePath = currentPath;
+//     const ext = filePath.split('.').pop().toLowerCase();
+
+//     const runCommands = {
+//         'py': `python3 "${filePath}"`,
+//         'js': `node "${filePath}"`,
+//         'sh': `bash "${filePath}"`,
+//         'cpp': `g++ "${filePath}" -o out && ./out`,
+//         'c': `gcc "${filePath}" -o out && ./out`,
+//         'java': `javac "${filePath}" && java ${filePath.replace(/\.java$/, '')}`,
+//         'rb': `ruby "${filePath}"`,
+//         'go': `go run "${filePath}"`,
+//     };
+
+//     const command = runCommands[ext];
+//     if (!command) {
+//         return alert(`No run command defined for .${ext} files`);
+//     }
+
+//     autoSave();
+
+//     // Use active terminal and send command
+//     const activeTerminal = terminals[activeTerminalIdx];
+//     if (activeTerminal && activeTerminal.socket && activeTerminal.socket.connected) {
+//         activeTerminal.socket.emit('terminal_input', { data: command + '\n' });
+//         activeTerminal.input.focus();
+//     } 
+// });
+
+
+addTerminalTab();
+document.getElementById('runButton').addEventListener('click', () => {
+    if (!window.editor || !currentPath) return alert("No file open");
+
+    if (terminals.length === 0) {
+        addTerminalTab();
+    }
+
+    const filePath = currentPath;
+    const ext = filePath.split('.').pop().toLowerCase();
+
+    const runCommands = {
+        // Use -u flag for Python to ensure unbuffered output
+        'py': `python3 -u "${filePath}"`,
+        'js': `node "${filePath}"`,
+        'sh': `bash "${filePath}"`,
+        'cpp': `g++ "${filePath}" -o out && ./out`,
+        'c': `gcc "${filePath}" -o out && ./out`,
+        'java': `javac "${filePath}" && java ${filePath.replace(/\.java$/, '')}`,
+        'rb': `ruby "${filePath}"`,
+        'go': `go run "${filePath}"`,
+    };
+
+    const command = runCommands[ext];
+    if (!command) {
+        return alert(`No run command defined for .${ext} files`);
+    }
+
+    autoSave();
+
+    const activeTerminal = terminals[activeTerminalIdx];
+
+    if (activeTerminal.socket.connected) {
+        activeTerminal.input.focus();
+        activeTerminal.input.value = command;
+        activeTerminal.input.focus();
+    }
+});
+
+
+
+function setupTerminalInputHandler(input, terminalIndex, socket, history) {
+    let historyIndex = history.length;
+    let currentLine = '';
+    let cursorPosition = 0;
+    let searchMode = false;
+    let searchQuery = '';
+    let originalCommand = '';
+
+    input.addEventListener('keydown', function (e) {
+        const activeTerminal = terminals[terminalIndex];
+
+        // Handle different key combinations
+        if (e.ctrlKey) {
+            switch (e.key) {
+                case 'c':
+                    e.preventDefault();
+                    // Send SIGINT (Ctrl+C)
+                    socket.emit('terminal_input', { data: '\x03' });
+                    input.value = '';
+                    cursorPosition = 0;
+                    break;
+
+                case 'd':
+                    e.preventDefault();
+                    // Send EOF (Ctrl+D)
+                    if (input.value === '') {
+                        socket.emit('terminal_input', { data: '\x04' });
+                    } else {
+                        // Delete character at cursor
+                        const value = input.value;
+                        input.value = value.slice(0, cursorPosition) + value.slice(cursorPosition + 1);
+                    }
+                    break;
+
+                case 'z':
+                    e.preventDefault();
+                    // Send SIGTSTP (Ctrl+Z)
+                    socket.emit('terminal_input', { data: '\x1a' });
+                    break;
+
+                case 'l':
+                    e.preventDefault();
+                    // Clear screen
+                    socket.emit('terminal_input', { data: 'clear\n' });
+                    break;
+
+                case 'a':
+                    e.preventDefault();
+                    // Move cursor to beginning of line
+                    input.setSelectionRange(0, 0);
+                    cursorPosition = 0;
+                    break;
+
+                case 'e':
+                    e.preventDefault();
+                    // Move cursor to end of line
+                    cursorPosition = input.value.length;
+                    input.setSelectionRange(cursorPosition, cursorPosition);
+                    break;
+
+                case 'k':
+                    e.preventDefault();
+                    // Kill line from cursor to end
+                    const pos = input.selectionStart;
+                    input.value = input.value.substring(0, pos);
+                    cursorPosition = pos;
+                    break;
+
+                case 'u':
+                    e.preventDefault();
+                    // Kill line from beginning to cursor
+                    const curPos = input.selectionStart;
+                    input.value = input.value.substring(curPos);
+                    input.setSelectionRange(0, 0);
+                    cursorPosition = 0;
+                    break;
+
+                case 'w':
+                    e.preventDefault();
+                    // Delete word backwards
+                    const startPos = input.selectionStart;
+                    const value = input.value;
+                    let wordStart = startPos - 1;
+
+                    // Skip whitespace
+                    while (wordStart >= 0 && /\s/.test(value[wordStart])) {
+                        wordStart--;
+                    }
+                    // Find start of word
+                    while (wordStart >= 0 && !/\s/.test(value[wordStart])) {
+                        wordStart--;
+                    }
+                    wordStart++;
+
+                    input.value = value.slice(0, wordStart) + value.slice(startPos);
+                    input.setSelectionRange(wordStart, wordStart);
+                    cursorPosition = wordStart;
+                    break;
+
+                case 'r':
+                    e.preventDefault();
+                    // Reverse search
+                    if (!searchMode) {
+                        searchMode = true;
+                        originalCommand = input.value;
+                        searchQuery = '';
+                        input.placeholder = "(reverse-i-search)`': ";
+                    }
+                    break;
+
+                case 'g':
+                    e.preventDefault();
+                    // Cancel search or command
+                    if (searchMode) {
+                        searchMode = false;
+                        input.value = originalCommand;
+                        input.placeholder = "Type command and press Enter...";
+                    } else {
+                        input.value = '';
+                        cursorPosition = 0;
+                    }
+                    break;
+
+                case 'p':
+                    e.preventDefault();
+                    // Previous command (alternative to up arrow)
+                    if (historyIndex > 0) {
+                        historyIndex--;
+                        input.value = history[historyIndex];
+                        cursorPosition = input.value.length;
+                        input.setSelectionRange(cursorPosition, cursorPosition);
+                    }
+                    break;
+
+                case 'n':
+                    e.preventDefault();
+                    // Next command (alternative to down arrow)
+                    if (historyIndex < history.length - 1) {
+                        historyIndex++;
+                        input.value = history[historyIndex];
+                    } else {
+                        historyIndex = history.length;
+                        input.value = '';
+                    }
+                    cursorPosition = input.value.length;
+                    input.setSelectionRange(cursorPosition, cursorPosition);
+                    break;
+
+                case 'f':
+                    e.preventDefault();
+                    // Move cursor forward one character
+                    if (cursorPosition < input.value.length) {
+                        cursorPosition++;
+                        input.setSelectionRange(cursorPosition, cursorPosition);
+                    }
+                    break;
+
+                case 'b':
+                    e.preventDefault();
+                    // Move cursor backward one character
+                    if (cursorPosition > 0) {
+                        cursorPosition--;
+                        input.setSelectionRange(cursorPosition, cursorPosition);
+                    }
+                    break;
+
+                case 'h':
+                    e.preventDefault();
+                    // Backspace (delete char before cursor)
+                    if (cursorPosition > 0) {
+                        const value = input.value;
+                        input.value = value.slice(0, cursorPosition - 1) + value.slice(cursorPosition);
+                        cursorPosition--;
+                        input.setSelectionRange(cursorPosition, cursorPosition);
+                    }
+                    break;
+            }
+        }
+        // Alt key combinations
+        else if (e.altKey) {
+            switch (e.key) {
+                case 'f':
+                    e.preventDefault();
+                    // Move forward one word
+                    const value = input.value;
+                    let pos = input.selectionStart;
+
+                    // Skip current word
+                    while (pos < value.length && !/\s/.test(value[pos])) {
+                        pos++;
+                    }
+                    // Skip whitespace
+                    while (pos < value.length && /\s/.test(value[pos])) {
+                        pos++;
+                    }
+
+                    input.setSelectionRange(pos, pos);
+                    cursorPosition = pos;
+                    break;
+
+                case 'b':
+                    e.preventDefault();
+                    // Move backward one word
+                    const val = input.value;
+                    let position = input.selectionStart - 1;
+
+                    // Skip whitespace
+                    while (position >= 0 && /\s/.test(val[position])) {
+                        position--;
+                    }
+                    // Find start of word
+                    while (position >= 0 && !/\s/.test(val[position])) {
+                        position--;
+                    }
+                    position++;
+
+                    input.setSelectionRange(position, position);
+                    cursorPosition = position;
+                    break;
+
+                case 'd':
+                    e.preventDefault();
+                    // Delete word forward
+                    const currentValue = input.value;
+                    const startPosition = input.selectionStart;
+                    let endPos = startPosition;
+
+                    // Skip current word
+                    while (endPos < currentValue.length && !/\s/.test(currentValue[endPos])) {
+                        endPos++;
+                    }
+                    // Skip whitespace
+                    while (endPos < currentValue.length && /\s/.test(currentValue[endPos])) {
+                        endPos++;
+                    }
+
+                    input.value = currentValue.slice(0, startPosition) + currentValue.slice(endPos);
+                    input.setSelectionRange(startPosition, startPosition);
+                    cursorPosition = startPosition;
+                    break;
+
+                case 'Backspace':
+                    e.preventDefault();
+                    // Delete word backward (same as Ctrl+W)
+                    const startPos = input.selectionStart;
+                    const inputValue = input.value;
+                    let wordStart = startPos - 1;
+
+                    while (wordStart >= 0 && /\s/.test(inputValue[wordStart])) {
+                        wordStart--;
+                    }
+                    while (wordStart >= 0 && !/\s/.test(inputValue[wordStart])) {
+                        wordStart--;
+                    }
+                    wordStart++;
+
+                    input.value = inputValue.slice(0, wordStart) + inputValue.slice(startPos);
+                    input.setSelectionRange(wordStart, wordStart);
+                    cursorPosition = wordStart;
+                    break;
+            }
+        }
+        // Regular keys without modifiers
+        else {
+            switch (e.key) {
+                case 'Enter':
+                    e.preventDefault();
+                    const command = input.value.trim();
+
+                    if (searchMode) {
+                        // Execute found command
+                        searchMode = false;
+                        input.placeholder = "Type command and press Enter...";
+                    }
+
+                    if (command) {
+                        // Add to history if it's not a duplicate of the last command
+                        if (history.length === 0 || history[history.length - 1] !== command) {
+                            history.push(command);
+                            // Limit history size
+                            if (history.length > 1000) {
+                                history.shift();
+                            }
+                        }
+                        historyIndex = history.length;
+
+                        // Handle special commands
+                        if (command === 'clear' || command === 'cls') {
+                            activeTerminal.output.innerHTML = '';
+                        }
+
+                        socket.emit('terminal_input', { data: command + '\n' });
+                        input.value = '';
+                        cursorPosition = 0;
+                    } else {
+                        // Empty command, just send newline
+                        socket.emit('terminal_input', { data: '\n' });
+                    }
+                    break;
+
+                case 'ArrowUp':
+                    e.preventDefault();
+                    if (searchMode) {
+                        // Continue reverse search
+                        searchInHistory(true);
+                    } else if (historyIndex > 0) {
+                        historyIndex--;
+                        input.value = history[historyIndex];
+                        cursorPosition = input.value.length;
+                        input.setSelectionRange(cursorPosition, cursorPosition);
+                    }
+                    break;
+
+                case 'ArrowDown':
+                    e.preventDefault();
+                    if (searchMode) {
+                        // Forward search
+                        searchInHistory(false);
+                    } else if (historyIndex < history.length - 1) {
+                        historyIndex++;
+                        input.value = history[historyIndex];
+                        cursorPosition = input.value.length;
+                        input.setSelectionRange(cursorPosition, cursorPosition);
+                    } else {
+                        historyIndex = history.length;
+                        input.value = '';
+                        cursorPosition = 0;
+                    }
+                    break;
+
+                case 'ArrowLeft':
+                    e.preventDefault();
+                    if (cursorPosition > 0) {
+                        cursorPosition--;
+                        input.setSelectionRange(cursorPosition, cursorPosition);
+                    }
+                    break;
+
+                case 'ArrowRight':
+                    e.preventDefault();
+                    if (cursorPosition < input.value.length) {
+                        cursorPosition++;
+                        input.setSelectionRange(cursorPosition, cursorPosition);
+                    }
+                    break;
+
+                case 'Home':
+                    e.preventDefault();
+                    cursorPosition = 0;
+                    input.setSelectionRange(0, 0);
+                    break;
+
+                case 'End':
+                    e.preventDefault();
+                    cursorPosition = input.value.length;
+                    input.setSelectionRange(cursorPosition, cursorPosition);
+                    break;
+
+                case 'Delete':
+                    e.preventDefault();
+                    if (cursorPosition < input.value.length) {
+                        const value = input.value;
+                        input.value = value.slice(0, cursorPosition) + value.slice(cursorPosition + 1);
+                    }
+                    break;
+
+                case 'Backspace':
+                    if (!searchMode) {
+                        // Let default backspace behavior work
+                        setTimeout(() => {
+                            cursorPosition = input.selectionStart;
+                        }, 0);
+                    } else {
+                        e.preventDefault();
+                        if (searchQuery.length > 0) {
+                            searchQuery = searchQuery.slice(0, -1);
+                            searchInHistory(true);
+                        }
+                    }
+                    break;
+
+                case 'Tab':
+                    e.preventDefault();
+                    // Basic tab completion (you can enhance this)
+                    handleTabCompletion(input, socket);
+                    break;
+
+                case 'Escape':
+                    e.preventDefault();
+                    if (searchMode) {
+                        searchMode = false;
+                        input.value = originalCommand;
+                        input.placeholder = "Type command and press Enter...";
+                    } else {
+                        // Clear current line
+                        input.value = '';
+                        cursorPosition = 0;
+                    }
+                    break;
+
+                default:
+                    if (searchMode && e.key.length === 1) {
+                        e.preventDefault();
+                        searchQuery += e.key;
+                        searchInHistory(true);
+                    } else if (!e.ctrlKey && !e.altKey && e.key.length === 1) {
+                        // Regular character input
+                        setTimeout(() => {
+                            cursorPosition = input.selectionStart;
+                        }, 0);
+                    }
+                    break;
+            }
+        }
+    });
+
+    // Helper function for history search
+    function searchInHistory(reverse = true) {
+        const matches = history.filter(cmd => cmd.includes(searchQuery));
+        if (matches.length > 0) {
+            const match = reverse ? matches[matches.length - 1] : matches[0];
+            input.value = match;
+            input.placeholder = `(reverse-i-search)\`${searchQuery}': ${match}`;
+        }
+    }
+
+    // Basic tab completion
+    function handleTabCompletion(input, socket) {
+        const currentValue = input.value;
+        const words = currentValue.split(' ');
+        const lastWord = words[words.length - 1];
+
+        if (words.length === 1) {
+            // Command completion
+            const commonCommands = [
+                'ls', 'cd', 'pwd', 'mkdir', 'rmdir', 'rm', 'cp', 'mv', 'cat', 'less', 'more',
+                'grep', 'find', 'which', 'whereis', 'man', 'info', 'help', 'history',
+                'ps', 'top', 'kill', 'killall', 'jobs', 'bg', 'fg', 'nohup',
+                'chmod', 'chown', 'chgrp', 'umask', 'sudo', 'su',
+                'git', 'npm', 'node', 'python', 'python3', 'pip', 'pip3',
+                'vim', 'nano', 'emacs', 'code', 'clear', 'exit', 'logout'
+            ];
+
+            const matches = commonCommands.filter(cmd => cmd.startsWith(lastWord));
+            if (matches.length === 1) {
+                words[words.length - 1] = matches[0];
+                input.value = words.join(' ') + ' ';
+                cursorPosition = input.value.length;
+            } else if (matches.length > 1) {
+                // Show possible completions in terminal
+                appendToTerminalTab(terminalIndex, '\n' + matches.join('  ') + '\n');
+            }
+        } else {
+            // File completion - send to server for actual file system completion
+            socket.emit('tab_completion', {
+                command: currentValue,
+                cursor_position: input.selectionStart
+            });
+        }
+    }
+
+    // Update cursor position on clicks
+    input.addEventListener('click', function () {
+        setTimeout(() => {
+            cursorPosition = input.selectionStart;
+        }, 0);
+    });
+
+    // Update history index reference
+    activeTerminal.historyIndex = historyIndex;
+}
+
+const keySequence = [];
+let sequenceTimer = null;
+
+// Max delay allowed between key presses in ms
+const sequenceTimeout = 600;
+
+// Listen globally or on terminal input
+document.addEventListener('keydown', function (e) {
+    const key = e.key.toLowerCase();
+
+    if (e.ctrlKey && e.key === 'c') {
+        e.preventDefault();
+        if (socket && isTerminalConnected) {
+            socket.emit('terminal_input', { data: '\x03' }); // ASCII 3 = Ctrl+C
+        }
+        return;
+    }
+
+    // Ctrl + L => Clear screen
+    if (e.ctrlKey && e.key === 'l') {
+        e.preventDefault();
+        clearTerminal();
+        return;
+    }
+
+    // Ctrl + A => Move cursor to start
+    if (e.ctrlKey && e.key === 'a') {
+        e.preventDefault();
+        input.setSelectionRange(0, 0);
+        return;
+    }
+
+    // Ctrl + E => Move cursor to end
+    if (e.ctrlKey && e.key === 'e') {
+        e.preventDefault();
+        const len = input.value.length;
+        input.setSelectionRange(len, len);
+        return;
+    }
+
+    // Ctrl + U => Clear entire line
+    if (e.ctrlKey && e.key === 'u') {
+        e.preventDefault();
+        input.value = '';
+        return;
+    }
+
+    // Ctrl + K => Clear from cursor to end
+    if (e.ctrlKey && e.key === 'k') {
+        e.preventDefault();
+        const cursor = input.selectionStart;
+        input.value = input.value.slice(0, cursor);
+        return;
+    }
+
+    // Ctrl + D => Simulate detach or exit
+    if (e.ctrlKey && e.key === 'd') {
+        e.preventDefault();
+        socket.emit('terminal_input', { data: '\x04' }); // ASCII 4 = Ctrl+D
+        return;
+    }
+    if (e.key === 'Enter') {
+        const command = input.value;
+        if (command.trim()) {
+            history.push(command);
+            hidx = history.length;
+            socket.emit('terminal_input', { data: command + '\n' });
+            input.value = '';
+        }
+    }
+    else if (e.key == "ArrowUp") { e.preventDefault(); if (hidx > 0) { input.value = history[--hidx]; } }
+    else if (e.key == "ArrowDown") { e.preventDefault(); if (hidx < history.length - 1) input.value = history[++hidx]; else hidx = history.length, input.value = ''; }
+
+
+    // Store key if part of a combination
+    if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) {
+        keySequence.push(key);
+
+        // Reset sequence timer
+        clearTimeout(sequenceTimer);
+        sequenceTimer = setTimeout(() => keySequence.length = 0, sequenceTimeout);
+
+        // Handle Ctrl + A + D
+        if (keySequence.includes('control') && keySequence.includes('a') && key === 'd') {
+            e.preventDefault();
+            keySequence.length = 0;
+
+            // Detach logic
+            appendToTerminal('Session detached.\n', 'success');
+            if (socket && isTerminalConnected) {
+                socket.emit('terminal_input', { data: '\x04' }); // Ctrl+D
+            }
+            return;
+        }
+
+        // Example: Ctrl + A + K (clear + signal)
+        if (keySequence.includes('control') && keySequence.includes('a') && key === 'k') {
+            e.preventDefault();
+            keySequence.length = 0;
+            clearTerminal();
+            return;
+        }
+
+        // Example: Ctrl + A + L (clear + refocus)
+        if (keySequence.includes('control') && keySequence.includes('a') && key === 'l') {
+            e.preventDefault();
+            keySequence.length = 0;
+            clearTerminal();
+            terminalInput.focus();
+            return;
+        }
+
+        // Custom Combo: Ctrl + A + R => Restart terminal
+        if (keySequence.includes('control') && keySequence.includes('a') && key === 'r') {
+            e.preventDefault();
+            keySequence.length = 0;
+            restartTerminal();
+            return;
+        }
+
+        if (e.key === ' ' || e.key === 'Spacebar') {
+            const char = e.key;
+            if (socket && isTerminalConnected) {
+                socket.emit('terminal_input', { data: char });
+            }
+            e.preventDefault();
+        }
+    }
+});

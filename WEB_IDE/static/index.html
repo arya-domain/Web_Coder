@@ -4,6 +4,7 @@
 <head>
     <title>Flask IDE</title>
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@vscode/codicons@latest/dist/codicon.css">
 </head>
 
 <body>
@@ -21,10 +22,20 @@
                 <div class="create-controls">
                     <button class="btn" onclick="createEntry()">Create</button>
                     <button class="btn delete" onclick="deleteSelected()">Delete</button>
+                    <button id="runButton" class="btn" title="Run Code">Run</button>
                 </div>
                 <div class="view-toggle">
                     <button class="toggle-btn active" id="treeView" onclick="switchToTreeView()">Tree</button>
                     <button class="toggle-btn" id="flatView" onclick="switchToFlatView()">Flat</button>
+                    <label class="input-label">
+                        AI IN:
+                        <input id="prevLines" type="number" value="5" min="1">
+                    </label>
+
+                    <label class="input-label">
+                        AI OUT:
+                        <input id="nextLines" type="number" value="2" min="1">
+                    </label>
                 </div>
             </div>
             <div id="fileList"></div>
@@ -42,12 +53,8 @@
                     <div id="terminal-tabs" class="terminal-tabs">
                     </div>
                     <div class="terminal-controls">
-                        <button class="terminal-btn" onclick="addTerminalTab()">+</button>
+                        <button class="terminal-btn" onclick="addTerminalTab()"> + </button>
                         <div id="editor-buttons" style="margin-bottom: 10px;"></div>
-                        <label>Prev lines: <input id="prevLines" type="number" value="5" min="1"
-                                style="width: 40px;"></label>
-                        <label>Next lines: <input id="nextLines" type="number" value="2" min="1"
-                                style="width: 40px;"></label>
                     </div>
                 </div>
                 <div id="terminal-tabs-content">
