@@ -27,33 +27,36 @@
                 <div class="view-toggle">
                     <button class="toggle-btn active" id="treeView" onclick="switchToTreeView()">Tree</button>
                     <button class="toggle-btn" id="flatView" onclick="switchToFlatView()">Flat</button>
-                    <label class="input-label">
-                        AI IN:
-                        <input id="prevLines" type="number" value="5" min="1">
-                    </label>
+                    <div class="form-container">
+                        <label class="input-label">
+                            Input
+                            <input id="prevLines" type="number" value="5" min="1">
+                        </label>
 
-                    <label class="input-label">
-                        AI OUT:
-                        <input id="nextLines" type="number" value="2" min="1">
-                    </label>
+                        <label class="input-label">
+                            Prediction
+                            <input id="nextLines" type="number" value="2" min="1">
+                        </label>
+                    </div>
                 </div>
             </div>
             <div id="fileList"></div>
         </div>
         <div id="verticalResizeHandle" class="vertical-resize-handle"></div>
         <div id="editor">
-            <div class="editor-terminal-container">
-                <div id="filename">No file selected</div>
-                <div id="monaco"></div>
-            </div>
+            <div id="editor-tabs" class="tab-bar"></div>
+            <div id="monaco"></div>
             <div class="resize-handle" id="resizeHandle"></div>
             <div id="terminal">
                 <div class="terminal-header">
-                    <span class="terminal-title">TERMINAL</span>
+                    <span class="terminal-title">
+                        TERMINAL
+                        <button class="terminal-btn" onclick="addTerminalTab()"> + </button>
+                    </span>
                     <div id="terminal-tabs" class="terminal-tabs">
                     </div>
                     <div class="terminal-controls">
-                        <button class="terminal-btn" onclick="addTerminalTab()"> + </button>
+                        <!-- <button class="terminal-btn" onclick="addTerminalTab()"> + </button> -->
                         <div id="editor-buttons" style="margin-bottom: 10px;"></div>
                     </div>
                 </div>

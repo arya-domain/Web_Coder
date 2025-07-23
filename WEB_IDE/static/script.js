@@ -1,4 +1,4 @@
-
+const openFiles = {}
 let currentPath = "";
 let currentDir = "";
 let selectedItem = null;
@@ -504,30 +504,58 @@ function getLanguageFromPath(path) {
     return map[ext] || 'plaintext';
 }
 
-
 function openFile(path) {
+    if (openFiles[path]) {
+        window.editor.setModel(openFiles[path].model);
+        highlightTab(path);
+        currentPath = path;
+        return;
+    }
+
     fetch(`/api/read?path=${path}`)
         .then(res => res.text())
         .then(content => {
-            if (window.editor) {
-                const ext = path.split('.').pop();
-                const lang = getLanguageFromPath(ext);
+            const ext = path.split('.').pop();
+            const lang = getLanguageFromPath(ext);
+            const model = monaco.editor.createModel(content, lang);
+            window.editor.setModel(model);
+            currentPath = path;
 
-                const oldModel = window.editor.getModel();
-                const newModel = monaco.editor.createModel(content, lang);
-                window.editor.setModel(newModel);
+            // Create new tab
+            const tab = createEditorTab(path);
+            openFiles[path] = { model, tabElement: tab };
 
-                if (oldModel) oldModel.dispose(); // cleanup
-
-                document.getElementById("filename").textContent = path;
-                currentPath = path;
-            }
+            highlightTab(path);
         })
         .catch(err => {
             console.error('Failed to open file:', err);
             alert('Failed to open file: ' + err.message);
         });
 }
+
+// function openFile(path) {
+//     fetch(`/api/read?path=${path}`)
+//         .then(res => res.text())
+//         .then(content => {
+//             if (window.editor) {
+//                 const ext = path.split('.').pop();
+//                 const lang = getLanguageFromPath(ext);
+
+//                 const oldModel = window.editor.getModel();
+//                 const newModel = monaco.editor.createModel(content, lang);
+//                 window.editor.setModel(newModel);
+
+//                 if (oldModel) oldModel.dispose(); // cleanup
+
+//                 document.getElementById("filename").textContent = path;
+//                 currentPath = path;
+//             }
+//         })
+//         .catch(err => {
+//             console.error('Failed to open file:', err);
+//             alert('Failed to open file: ' + err.message);
+//         });
+// }
 
 
 function autoSave() {
@@ -886,7 +914,7 @@ require(["vs/editor/editor.main"], function () {
         language: "python",
         theme: "one-dark-pro", // Use the custom theme here
         automaticLayout: true,
-        fontSize: 14,
+        fontSize: 15,
         lineNumbers: "on",
         roundedSelection: false,
         scrollBeyondLastLine: false,
@@ -1908,3 +1936,84 @@ document.addEventListener('keydown', function (e) {
         }
     }
 });
+
+
+function createEditorTab(path) {
+    const tabBar = document.getElementById('editor-tabs');
+    const tab = document.createElement('div');
+    tab.className = 'editor-tab';
+
+    // File name span
+    const fileNameSpan = document.createElement('span');
+    fileNameSpan.textContent = path.split('/').pop();
+    fileNameSpan.title = path;
+    fileNameSpan.style.flex = '1';
+    fileNameSpan.style.overflow = 'hidden';
+    fileNameSpan.style.textOverflow = 'ellipsis';
+
+    // Close button span
+    const closeBtn = document.createElement('span');
+    closeBtn.textContent = '×'; // You can replace this with an SVG or icon
+    closeBtn.className = 'close-btn';
+    closeBtn.style.marginLeft = '8px';
+    closeBtn.style.cursor = 'pointer';
+    closeBtn.title = 'Close tab';
+
+    closeBtn.addEventListener('click', (e) => {
+        e.stopPropagation(); // prevent tab click
+        closeEditorTab(path);
+    });
+
+    tab.appendChild(fileNameSpan);
+    tab.appendChild(closeBtn);
+
+    tab.addEventListener('click', () => {
+        if (openFiles[path]) {
+            window.editor.setModel(openFiles[path].model);
+            currentPath = path;
+            highlightTab(path);
+        }
+    });
+
+    tabBar.appendChild(tab);
+    return tab;
+}
+function closeEditorTab(path) {
+    const entry = openFiles[path];
+    if (!entry) return;
+
+    // Dispose model to free memory
+    if (entry.model) {
+        entry.model.dispose();
+    }
+
+    // Remove tab element
+    if (entry.tabElement && entry.tabElement.parentNode) {
+        entry.tabElement.remove();
+    }
+
+    delete openFiles[path];
+
+    // Fallback to another open tab if needed
+    const remainingPaths = Object.keys(openFiles);
+    if (remainingPaths.length > 0) {
+        const newPath = remainingPaths[0];
+        window.editor.setModel(openFiles[newPath].model);
+        currentPath = newPath;
+        highlightTab(newPath);
+    } else {
+        window.editor.setModel(null);
+        currentPath = null;
+        document.getElementById('filename').textContent = 'No file selected';
+    }
+}
+
+
+function highlightTab(path) {
+    document.querySelectorAll('.editor-tab').forEach(tab => {
+        tab.classList.remove('active-tab');
+    });
+    if (openFiles[path]) {
+        openFiles[path].tabElement.classList.add('active-tab');
+    }
+}
