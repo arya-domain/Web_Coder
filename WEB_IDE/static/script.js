@@ -791,16 +791,11 @@ function initializeResize() {
         document.removeEventListener('mouseup', stopResize);
     }
 }
-// Initialize Monaco Editor and Terminal
 require.config({
     paths: {
         vs: "https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.34.1/min/vs"
     }
 });
-
-
-
-
 require(["vs/editor/editor.main"], function () {
     monaco.editor.defineTheme('one-dark-pro', {
         base: 'vs-dark',
@@ -837,12 +832,6 @@ require(["vs/editor/editor.main"], function () {
         readOnly: false,
         minimap: { enabled: true }
     });
-
-    // const geminiBtn = document.createElement("button");
-    // geminiBtn.textContent = "⚡ Gemini Autocomplete";
-    // geminiBtn.style.marginTop = "10px";
-    // geminiBtn.onclick = () => runGeminiCompletion();
-    // document.getElementById("editor-buttons").appendChild(geminiBtn);
 
     window.editor.focus();
 
@@ -981,8 +970,10 @@ async function runGeminiCompletion() {
     const model = window.editor.getModel();
     const position = window.editor.getPosition();
     const totalLines = model.getLineCount();
+    const prevLines = parseInt(document.getElementById("prevLines").value) || 5;
+    const nextLines = parseInt(document.getElementById("nextLines").value) || 2;
 
-    const startLine = Math.max(1, position.lineNumber - 5);
+    const startLine = Math.max(1, position.lineNumber - prevLines);
     const endLine = Math.min(totalLines, position.lineNumber);
 
     // Extract 2 lines above and 2 lines below the cursor
@@ -996,7 +987,7 @@ async function runGeminiCompletion() {
         const res = await fetch("/api/autocomplete", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ prompt }),
+            body: JSON.stringify({ prompt, nextLines }),
         });
 
         const data = await res.json();
@@ -1004,7 +995,7 @@ async function runGeminiCompletion() {
 
         let completion = data.completion;
         console.log(completion)
-        const match = completion.match(/```(?:[a-zA-Z]*)?\n([\s\S]*?)```/);
+        const match = completion.match(/```(?:[a-zA-Z]*)?([\s\S]*?)```/);
         if (match) {
             completion = match[1];
         }
@@ -1024,21 +1015,13 @@ async function runGeminiCompletion() {
 }
 
 document.addEventListener("keydown", (event) => {
-    // Check if Ctrl (or Meta for Mac) + Space is pressed
-    if (event.shiftKey && event.altKey) { //code === "Space"
-        event.preventDefault(); // Prevent default browser behavior (like scrolling)
+    if (event.shiftKey && event.altKey && !event.ctrlKey && !event.metaKey) {
+        console.log("AI CALLED")
+        event.preventDefault();
         runGeminiCompletion();
     }
 });
-
-
-// ###########################################################
-
-
-
-
-
-
+// ###########################################################3
 
 
 

@@ -384,11 +384,12 @@ def handle_terminal_resize(data):
 def autocomplete():
     data = request.get_json()
     prompt = data.get("prompt", "")
+    nextLines = data.get("nextLines", 2)
 
     if not prompt:
         return jsonify({"error": "Prompt is required"}), 400
 
-    prompt = "Write the next 2-5 lines code to autocomplete just return the code and nothing else. You must focus on the ending of the current below code and suggest accordingly. Only return code.\n\n Code- ```"+prompt+"```"
+    prompt = f"Write the next {nextLines} lines code to autocomplete just return the code and nothing else. You must focus on the ending of the current below code and suggest accordingly. Only return code.\n\n Code- ```"+prompt+"```"
     
     try:
         completion = generate_completion(prompt)
@@ -397,6 +398,5 @@ def autocomplete():
         return jsonify({"error": str(e)}), 500
 
 
-
 if __name__ == "__main__":
-    socketio.run(app, host="0.0.0.0", port=7860, debug=True, allow_unsafe_werkzeug=True)
+    socketio.run(app, host="0.0.0.0", port=7861, debug=True, allow_unsafe_werkzeug=True)
