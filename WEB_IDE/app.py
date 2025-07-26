@@ -171,32 +171,6 @@ class TerminalSession:
         finally:
             self._cleanup()
 
-    # def _read_output(self):
-    #     try:
-    #         while True:
-    #             if self.master_fd is None:
-    #                 break
-                    
-    #             # Use select to check if data is available
-    #             ready, _, _ = select.select([self.master_fd], [], [], 0.1)
-    #             if ready:
-    #                 try:
-    #                     data = os.read(self.master_fd, 1024)
-    #                     if data:
-    #                         output = data.decode('utf-8', errors='replace')
-    #                         socketio.emit('terminal_output', {
-    #                             'session_id': self.session_id,
-    #                             'data': output
-    #                         }, to=self.session_id)
-    #                     else:
-    #                         # break
-    #                         time.sleep(0.1)
-    #                 except OSError:
-    #                     break
-    #     except Exception as e:
-    #         print(f"Terminal read error: {e}")
-    #     finally:
-    #         self._cleanup()
     
     def write_input(self, data):
         if self.master_fd:

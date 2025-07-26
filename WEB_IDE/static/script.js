@@ -103,13 +103,21 @@ function addTerminalTab() {
     let input = tabPanel.querySelector('.terminal-input');
 
     input.addEventListener('keydown', function (e) {
-        if (e.key === ' ' || e.key === 'Spacebar') {
-            const char = e.key;
+        // if ((e.ctrlKey && e.key === ' ') || (e.ctrlKey && e.key === 'Spacebar')) {
+        //     const char = e.key;
+        //     if (socket && isTerminalConnected) {
+        //         socket.emit('terminal_input', { data: char });
+        //     }
+        //     e.preventDefault();
+        // }
+        if (e.ctrlKey && e.code === 'Space') {
+            const char = ' ';
             if (socket && isTerminalConnected) {
                 socket.emit('terminal_input', { data: char });
             }
             e.preventDefault();
         }
+
 
         // Ctrl + C => Send SIGINT (simulate)
         if (e.ctrlKey && e.key === 'c') {
@@ -172,12 +180,12 @@ function addTerminalTab() {
                 input.value = '';
             }
         }
-        else if (e.key === ' ') {
-            e.preventDefault(); // Prevent scrolling
-            terminalInput.value += ' '; // Insert space visually
-            const event = new Event('input', { bubbles: true });
-            terminalInput.dispatchEvent(event);
-        }
+        // else if (e.key === ' ') {
+        //     e.preventDefault(); // Prevent scrolling
+        //     terminalInput.value += ' '; // Insert space visually
+        //     const event = new Event('input', { bubbles: true });
+        //     terminalInput.dispatchEvent(event);
+        // }
         else if (e.key == "ArrowUp") { e.preventDefault(); if (hidx > 0) { input.value = history[--hidx]; } }
         else if (e.key == "ArrowDown") { e.preventDefault(); if (hidx < history.length - 1) input.value = history[++hidx]; else hidx = history.length, input.value = ''; }
     });
@@ -225,9 +233,15 @@ function closeTerminalTab(idx) {
     renderTerminalTabs();
 }
 
+function stripOSCSequences(text) {
+    return text.replace(/\x1B\][0-9]*;[^\x07]*\x07/g, '');
+}
+
+
 function appendToTerminalTab(idx, text, type = 'normal') {
     const ansi_up = new AnsiUp();
     ansi_up.use_classes = false;
+    // const cleanedText = stripOSCSequences(text);
     const html = ansi_up.ansi_to_html(text);
     const wrapper = document.createElement('div');
     wrapper.innerHTML = html;
@@ -1927,13 +1941,21 @@ document.addEventListener('keydown', function (e) {
             return;
         }
 
-        if (e.key === ' ' || e.key === 'Spacebar') {
-            const char = e.key;
+        // if ((e.ctrlKey && e.key === ' ') || (e.ctrlKey && e.key === 'Spacebar')) {
+        //     const char = e.key;
+        //     if (socket && isTerminalConnected) {
+        //         socket.emit('terminal_input', { data: char });
+        //     }
+        //     e.preventDefault();
+        // }
+        if (e.ctrlKey && e.code === 'Space') {
+            const char = ' ';
             if (socket && isTerminalConnected) {
                 socket.emit('terminal_input', { data: char });
             }
             e.preventDefault();
         }
+
     }
 });
 

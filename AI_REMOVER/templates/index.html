@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Humanize Text - Improved Design with API</title>
+    <style>
+        :root {
+            --primary-color: #007bff;
+            --secondary-color: #6c757d;
+            --background-color: #f8f9fa;
+            --text-color: #343a40;
+            --border-color: #dee2e6;
+            --white-color: #ffffff;
+            --success-color: #28a745;
+            --error-color: #dc3545;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            margin: 0;
+            padding: 2rem;
+            background-color: var(--background-color);
+            color: var(--text-color);
+        }
+
+        .main-container {
+            max-width: 1200px;
+            margin: auto;
+            background: var(--white-color);
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        header h1 {
+            text-align: center;
+            color: var(--primary-color);
+            margin-bottom: 2rem;
+        }
+
+        .text-areas-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+        }
+
+        .text-area-wrapper {
+            display: flex;
+            flex-direction: column;
+        }
+
+        textarea,
+        #humanizedOutput {
+            flex-grow: 1;
+            padding: 1rem;
+            font-size: 16px;
+            border: 1px solid var(--border-color);
+            border-radius: 5px;
+            resize: vertical;
+            min-height: 350px;
+            background: #fdfdfd;
+        }
+
+        #humanizedOutput {
+            white-space: pre-wrap;
+            background-color: #f1f3f5;
+        }
+
+        .toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 0;
+        }
+
+        .char-word-counter {
+            font-size: 14px;
+            color: var(--secondary-color);
+        }
+
+        .action-buttons button {
+            background: none;
+            border: 1px solid var(--border-color);
+            padding: 6px 12px;
+            font-size: 14px;
+            cursor: pointer;
+            border-radius: 4px;
+            margin-left: 8px;
+            transition: background-color 0.2s;
+        }
+
+        .action-buttons button:hover {
+            background-color: #e9ecef;
+        }
+
+        .main-controls {
+            text-align: center;
+            margin-top: 2rem;
+        }
+
+        #submitBtn {
+            background-color: var(--primary-color);
+            color: var(--white-color);
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        #submitBtn:hover {
+            background-color: #0056b3;
+        }
+
+        #submitBtn:disabled {
+            background-color: var(--secondary-color);
+            cursor: not-allowed;
+        }
+
+        .similarity-score {
+            text-align: center;
+            font-weight: bold;
+            font-size: 16px;
+            margin-top: 1rem;
+            color: var(--success-color);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="main-container">
+        <header>
+            <h1>Humanize AI Text</h1>
+        </header>
+
+        <form id="humanizeTextForm">
+            <div class="text-areas-container">
+                <div class="text-area-wrapper">
+                    <label for="inputText"><strong>Your AI Text</strong></label>
+                    <textarea name="aiText" id="inputText"
+                        placeholder="Paste your AI-generated text here..."></textarea>
+                    <div class="toolbar">
+                        <div class="char-word-counter" id="inputCounters">Chars: 0 | Words: 0</div>
+                        <div class="action-buttons">
+                            <button type="button" onclick="copyFromElement('inputText')">Copy</button>
+                            <button type="button" onclick="clearText('inputText')">Clear</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="text-area-wrapper">
+                    <label for="humanizedOutput"><strong>Humanized Text</strong></label>
+                    <div id="humanizedOutput" contenteditable="true">Your humanized text will appear here...</div>
+                    <div class="toolbar">
+                        <div class="char-word-counter" id="outputCounters">Chars: 0 | Words: 0</div>
+                        <div class="action-buttons">
+                            <button type="button" onclick="copyFromElement('humanizedOutput')">Copy</button>
+                            <button type="button" onclick="clearText('humanizedOutput')">Clear</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="main-controls">
+                <button type="submit" id="submitBtn">Humanize Now</button>
+            </div>
+        </form>
+
+        <p class="similarity-score" id="similarityDisplay">Similarity Score: --%</p>
+    </div>
+
+    <script>
+        const inputTextElement = document.getElementById("inputText");
+        const humanizedOutputElement = document.getElementById("humanizedOutput");
+        const humanizeForm = document.getElementById("humanizeTextForm");
+        const submitBtn = document.getElementById("submitBtn");
+        const similarityDisplay = document.getElementById("similarityDisplay");
+
+        const inputCounters = document.getElementById("inputCounters");
+        const outputCounters = document.getElementById("outputCounters");
+
+        function updateCounters(element, counterDisplay) {
+            const text = element.value || element.innerText;
+            const charCount = text.length;
+            const wordCount = text.trim().split(/\s+/).filter(Boolean).length;
+            counterDisplay.textContent = `Chars: ${charCount} | Words: ${wordCount}`;
+        }
+
+        inputTextElement.addEventListener("input", () => updateCounters(inputTextElement, inputCounters));
+        humanizedOutputElement.addEventListener("input", () => updateCounters(humanizedOutputElement, outputCounters));
+
+        humanizeForm.addEventListener("submit", async function (event) {
+            event.preventDefault();
+
+            submitBtn.textContent = "Processing...";
+            submitBtn.disabled = true;
+            humanizedOutputElement.textContent = "Your humanized text is being generated...";
+            similarityDisplay.textContent = "Similarity Score: --%";
+            updateCounters(humanizedOutputElement, outputCounters);
+
+            const formData = new FormData(this);
+            const originalText = inputTextElement.value;
+
+            try {
+                // This is the live API call to your backend endpoint.
+                const response = await fetch("/humanize", {
+                    method: "POST",
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+
+                const data = await response.json();
+
+                if (data.error && data.error !== "No") {
+                    humanizedOutputElement.textContent = "Error: " + data.error;
+                } else {
+                    humanizedOutputElement.textContent = data.message || "No message returned from API.";
+                    const similarity = calculateTextSimilarity(originalText, data.message);
+                    similarityDisplay.textContent = `Similarity Score: ${similarity.toFixed(2)}%`;
+                }
+
+            } catch (error) {
+                humanizedOutputElement.textContent = "Failed to process request: " + error;
+                console.error("API Request Error:", error);
+            } finally {
+                submitBtn.textContent = "Humanize Now";
+                submitBtn.disabled = false;
+                updateCounters(humanizedOutputElement, outputCounters);
+            }
+        });
+
+        function copyFromElement(elementId) {
+            const element = document.getElementById(elementId);
+            const textToCopy = element.value || element.innerText;
+            navigator.clipboard.writeText(textToCopy).then(() => alert("Text copied successfully!"));
+        }
+
+        function clearText(elementId) {
+            const element = document.getElementById(elementId);
+            if (element.tagName === 'TEXTAREA') {
+                element.value = "";
+            } else {
+                element.textContent = "";
+            }
+
+            if (elementId === 'inputText') {
+                updateCounters(inputTextElement, inputCounters);
+            } else {
+                updateCounters(humanizedOutputElement, outputCounters);
+            }
+        }
+
+        function calculateTextSimilarity(textA, textB) {
+            if (!textA || !textB) return 0;
+
+            const tokenize = str => str.toLowerCase().replace(/[^\w\s]/g, "").split(/\s+/);
+            const createVector = tokens => tokens.reduce((acc, word) => {
+                acc[word] = (acc[word] || 0) + 1;
+                return acc;
+            }, {});
+
+            const vectorA = createVector(tokenize(textA));
+            const vectorB = createVector(tokenize(textB));
+
+            const dotProduct = Object.keys(vectorA).reduce((sum, key) => sum + (vectorA[key] * (vectorB[key] || 0)), 0);
+            const magnitudeA = Math.sqrt(Object.values(vectorA).reduce((sum, val) => sum + val * val, 0));
+            const magnitudeB = Math.sqrt(Object.values(vectorB).reduce((sum, val) => sum + val * val, 0));
+
+            if (magnitudeA === 0 || magnitudeB === 0) return 0;
+            return (dotProduct / (magnitudeA * magnitudeB)) * 100;
+        }
+    </script>
+</body>
+
+</html>
