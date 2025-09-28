@@ -1,5 +1,5 @@
 import sys
-sys.path.append('/data/user/home/swalpa@agemc.ac.in/hoster/Web_Coder/web_ide')
+sys.path.append('/workspaces/Web_Coder/WEB_IDE')
 from flask import Flask, request, jsonify, send_from_directory
 from flask_socketio import SocketIO, emit, join_room, leave_room
 import os
@@ -88,6 +88,8 @@ def safe_join(base, *paths):
     return final_path
 
 
+
+
 class TerminalSession:
     def __init__(self, session_id, working_dir=None):
         self.session_id = session_id
@@ -105,17 +107,29 @@ class TerminalSession:
             # Set terminal size
             self._set_terminal_size(80, 24)
             
+            # This function will run in the child process just before exec
+            def preexec_setup():
+                # Make the new process a session leader
+                os.setsid()
+                # Set the pty slave as the controlling TTY
+                # This is the crucial step for `screen`
+                fcntl.ioctl(self.slave_fd, termios.TIOCSCTTY)
+
             # Start shell process
             env = os.environ.copy()
             env['TERM'] = 'xterm-256color'
+            if 'PROMPT_COMMAND' in env:
+                del env['PROMPT_COMMAND']
             env['PS1'] = r'\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
+            # env['PS1'] = r'\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
             
             self.process = subprocess.Popen(
                 ['/bin/bash', '--login'],
                 stdin=self.slave_fd,
                 stdout=self.slave_fd,
                 stderr=self.slave_fd,
-                preexec_fn=os.setsid,
+                # Use our new setup function
+                preexec_fn=preexec_setup, 
                 env=env,
                 cwd=self.working_dir,
                 bufsize=0 
@@ -171,7 +185,6 @@ class TerminalSession:
         finally:
             self._cleanup()
 
-    
     def write_input(self, data):
         if self.master_fd:
             try:
@@ -200,7 +213,6 @@ class TerminalSession:
     
     def close(self):
         self._cleanup()
-
 
 @app.route("/api/create", methods=["POST"])
 def create():
@@ -493,6 +505,28 @@ def paste():
         return f"Paste error: {e}", 500
 
 
+@app.route("/api/upload_folder", methods=["POST"])
+def upload_folder():
+    uploaded_file = request.files['file']
+    rel_path = request.form['path'].strip()
+
+    try:
+        file_path = safe_join(WORKSPACE_DIR, rel_path)
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+
+        uploaded_file.save(file_path)
+
+        return "Uploaded", 200
+
+    except ValueError as ve:
+        return f"Security error: {ve}", 403
+    except Exception as e:
+        return f"Error: {e}", 500
+
+@app.route("/api/workspace_dir", methods=["GET"])
+def get_workspace_dir():
+    """Returns the absolute path of the workspace directory."""
+    return jsonify({"workspace_dir": WORKSPACE_DIR})
 
 if __name__ == "__main__":
     socketio.run(app, host="0.0.0.0", port=7861, debug=True, allow_unsafe_werkzeug=True)

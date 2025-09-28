@@ -237,7 +237,18 @@
         function copyFromElement(elementId) {
             const element = document.getElementById(elementId);
             const textToCopy = element.value || element.innerText;
-            navigator.clipboard.writeText(textToCopy).then(() => alert("Text copied successfully!"));
+
+            navigator.clipboard.writeText(textToCopy).then(() => {
+                // Change text color to indicate successful copy
+                const originalColor = element.style.color;
+                element.style.color = 'var(--success-color)';
+                element.style.transition = 'color 0.3s ease';
+
+                // Reset color after 2 seconds
+                setTimeout(() => {
+                    element.style.color = originalColor;
+                }, 2000);
+            });
         }
 
         function clearText(elementId) {

@@ -88,10 +88,17 @@ function addTerminalTab() {
     `;
     document.getElementById('terminal-tabs-content').appendChild(tabPanel);
 
-    // Create socket & history for this terminal
+    // Create socket & history for this specific terminal tab
     let socket = io();
     let history = [], hidx = -1;
-    socket.on('connect', () => { socket.emit('start_terminal', { working_dir: currentDir || '' }); });
+    socket.on('connect', () => { 
+        // Use the global isTerminalConnected flag for other parts of the UI if needed
+        isTerminalConnected = true;
+        socket.emit('start_terminal', { working_dir: currentDir || '' }); 
+    });
+    socket.on('disconnect', () => {
+        isTerminalConnected = false;
+    });
     socket.on('terminal_output', d => {
         appendToTerminalTab(idx, d.data);
     });
@@ -99,101 +106,110 @@ function addTerminalTab() {
         appendToTerminalTab(idx, d.message, 'error');
     });
 
-    // Keyboard handler (arrow/history etc)
-    let input = tabPanel.querySelector('.terminal-input');
+    // Get references to this tab's specific input and output elements
+    const input = tabPanel.querySelector('.terminal-input');
+    const outputPanel = tabPanel.querySelector('.terminal-output');
 
+    // Auto-copy on text selection in the output panel
+    outputPanel.addEventListener('mouseup', (e) => {
+        const selection = window.getSelection();
+        if (selection && selection.toString().length > 0) {
+            if (outputPanel.contains(selection.anchorNode)) {
+                navigator.clipboard.writeText(selection.toString()).catch(err => {
+                    console.error('Failed to auto-copy text: ', err);
+                });
+            }
+        }
+    });
+
+    // This is the single, authoritative keydown handler for the terminal input
     input.addEventListener('keydown', function (e) {
-        // if ((e.ctrlKey && e.key === ' ') || (e.ctrlKey && e.key === 'Spacebar')) {
-        //     const char = e.key;
-        //     if (socket && isTerminalConnected) {
-        //         socket.emit('terminal_input', { data: char });
-        //     }
-        //     e.preventDefault();
-        // }
-        if (e.ctrlKey && e.code === 'Space') {
-            const char = ' ';
-            if (socket && isTerminalConnected) {
-                socket.emit('terminal_input', { data: char });
-            }
-            e.preventDefault();
-        }
-
-
-        // Ctrl + C => Send SIGINT (simulate)
-        if (e.ctrlKey && e.key === 'c') {
-            e.preventDefault();
-            if (socket && isTerminalConnected) {
-                socket.emit('terminal_input', { data: '\x03' }); // ASCII 3 = Ctrl+C
-            }
-            return;
-        }
-
-        // Ctrl + L => Clear screen
-        if (e.ctrlKey && e.key === 'l') {
-            e.preventDefault();
-            clearTerminal();
-            return;
-        }
-
-        // Ctrl + A => Move cursor to start
+        // --- General Hotkeys ---
         if (e.ctrlKey && e.key === 'a') {
             e.preventDefault();
-            input.setSelectionRange(0, 0);
+            input.select();
             return;
         }
-
-        // Ctrl + E => Move cursor to end
-        if (e.ctrlKey && e.key === 'e') {
-            e.preventDefault();
-            const len = input.value.length;
-            input.setSelectionRange(len, len);
-            return;
+        
+        // --- Smart Ctrl+C (Interrupt vs. Copy) ---
+        // Note: The auto-copy on mouseup makes this less critical, but it's good practice.
+        // This primarily handles sending the interrupt signal.
+        if (e.ctrlKey && e.key === 'c') {
+            const selection = window.getSelection();
+           if ((!selection || selection.toString().length === 0) && document.activeElement === input) {
+                e.preventDefault(); 
+                socket.emit('terminal_input', { data: '\x03' }); 
+                return;
+            }
+            // If text is selected, we do nothing, allowing the user's browser to copy.
+            // Our mouseup listener already handled the auto-copy.
+            
         }
 
-        // Ctrl + U => Clear entire line
-        if (e.ctrlKey && e.key === 'u') {
-            e.preventDefault();
-            input.value = '';
+        // --- Other Ctrl Hotkeys ---
+        if (e.ctrlKey && e.key === 'l') {
+            // Use the client-side clear for instant feedback
+            if(terminals[idx] && terminals[idx].output) {
+                terminals[idx].output.innerHTML = '';
+            }
             return;
         }
-
-        // Ctrl + K => Clear from cursor to end
-        if (e.ctrlKey && e.key === 'k') {
-            e.preventDefault();
-            const cursor = input.selectionStart;
-            input.value = input.value.slice(0, cursor);
-            return;
-        }
-
-        // Ctrl + D => Simulate detach or exit
         if (e.ctrlKey && e.key === 'd') {
             e.preventDefault();
-            socket.emit('terminal_input', { data: '\x04' }); // ASCII 4 = Ctrl+D
+            socket.emit('terminal_input', { data: '\x04' }); // Send EOF
             return;
         }
+
+        // --- Enter Key (Command Submission) ---
         if (e.key === 'Enter') {
-            const command = input.value;
-            if (command.trim()) {
-                history.push(command);
+            e.preventDefault();
+            const command = input.value.trim();
+
+            // Client-side 'clear' command
+            if (command === 'clear' || command === 'cls') {
+                if(terminals[idx] && terminals[idx].output) {
+                    terminals[idx].output.innerHTML = '';
+                }
+                if (command) {
+                    history.push(command);
+                    hidx = history.length;
+                }
+                input.value = '';
+                return;
+            }
+
+            // Send all other commands to the backend
+            if (command) {
+                if (history.length === 0 || history[history.length - 1] !== command) {
+                    history.push(command);
+                }
                 hidx = history.length;
                 socket.emit('terminal_input', { data: command + '\n' });
                 input.value = '';
+            } else {
+                 socket.emit('terminal_input', { data: '\n' });
+            }
+
+        } 
+        // --- Arrow Keys (History Navigation) ---
+        else if (e.key === "ArrowUp") { 
+            e.preventDefault(); 
+            if (hidx > 0) { 
+                input.value = history[--hidx]; 
+            } 
+        } else if (e.key === "ArrowDown") { 
+            e.preventDefault(); 
+            if (hidx < history.length - 1) { 
+                input.value = history[++hidx]; 
+            } else { 
+                hidx = history.length;
+                input.value = ''; 
             }
         }
-        // else if (e.key === ' ') {
-        //     e.preventDefault(); // Prevent scrolling
-        //     terminalInput.value += ' '; // Insert space visually
-        //     const event = new Event('input', { bubbles: true });
-        //     terminalInput.dispatchEvent(event);
-        // }
-        else if (e.key == "ArrowUp") { e.preventDefault(); if (hidx > 0) { input.value = history[--hidx]; } }
-        else if (e.key == "ArrowDown") { e.preventDefault(); if (hidx < history.length - 1) input.value = history[++hidx]; else hidx = history.length, input.value = ''; }
     });
 
-    // let input = tabPanel.querySelector('.terminal-input');
-    // setupTerminalInputHandler(input, idx, socket, history);
-
-    terminals.push({ socket, panel: tabPanel, input, output: tabPanel.querySelector('.terminal-output'), history, hidx });
+    // Add the fully configured terminal object to our global array
+    terminals.push({ socket, panel: tabPanel, input, output: outputPanel, history, hidx });
 
     renderTerminalTabs();
     setActiveTerminal(idx);
@@ -233,15 +249,9 @@ function closeTerminalTab(idx) {
     renderTerminalTabs();
 }
 
-function stripOSCSequences(text) {
-    return text.replace(/\x1B\][0-9]*;[^\x07]*\x07/g, '');
-}
-
-
 function appendToTerminalTab(idx, text, type = 'normal') {
     const ansi_up = new AnsiUp();
     ansi_up.use_classes = false;
-    // const cleanedText = stripOSCSequences(text);
     const html = ansi_up.ansi_to_html(text);
     const wrapper = document.createElement('div');
     wrapper.innerHTML = html;
@@ -249,8 +259,6 @@ function appendToTerminalTab(idx, text, type = 'normal') {
     terminals[idx].output.appendChild(wrapper);
     terminals[idx].output.scrollTop = terminals[idx].output.scrollHeight;
 }
-
-
 
 function getIconURL(fileName, isFolder, isExpanded = false) {
     if (isFolder) {
@@ -327,6 +335,7 @@ function createTreeItem(item, fullPath, depth = 0) {
                 icon.src = getIconURL(item.name, true, true);
                 loadTreeChildren(itemDiv, fullPath, depth + 1);
             }
+            saveState();
         });
 
         // Double click to enter folder in flat view
@@ -518,59 +527,52 @@ function getLanguageFromPath(path) {
     return map[ext] || 'plaintext';
 }
 
-function openFile(path) {
-    if (openFiles[path]) {
-        window.editor.setModel(openFiles[path].model);
-        highlightTab(path);
-        currentPath = path;
-        return;
-    }
+function openFile(path, options = { setActive: true }) {
+    // Return a promise to allow for `await` in loadState
+    return new Promise((resolve, reject) => {
+        if (openFiles[path]) {
+            if (options.setActive) {
+                window.editor.setModel(openFiles[path].model);
+                highlightTab(path);
+                currentPath = path;
+                saveState();
+            }
+            resolve();
+            return;
+        }
 
-    fetch(`/api/read?path=${path}`)
-        .then(res => res.text())
-        .then(content => {
-            const ext = path.split('.').pop();
-            const lang = getLanguageFromPath(ext);
-            const model = monaco.editor.createModel(content, lang);
-            window.editor.setModel(model);
-            currentPath = path;
+        fetch(`/api/read?path=${path}`)
+            .then(res => res.text())
+            .then(content => {
+                const lang = getLanguageFromPath(path);
+                const model = monaco.editor.createModel(content, lang);
+                
+                if (options.setActive) {
+                    window.editor.setModel(model);
+                    currentPath = path;
+                }
 
-            // Create new tab
-            const tab = createEditorTab(path);
-            openFiles[path] = { model, tabElement: tab };
+                const tab = createEditorTab(path);
+                openFiles[path] = { model, tabElement: tab };
 
-            highlightTab(path);
-        })
-        .catch(err => {
-            console.error('Failed to open file:', err);
-            alert('Failed to open file: ' + err.message);
-        });
+                if (options.setActive) {
+                    highlightTab(path);
+                }
+                
+                // Save state whenever a new file is opened
+                saveState(); 
+                resolve();
+            })
+            .catch(err => {
+                console.error('Failed to open file:', err);
+                // Don't show alert when bulk-loading
+                if (options.setActive) {
+                    alert('Failed to open file: ' + err.message);
+                }
+                reject(err);
+            });
+    });
 }
-
-// function openFile(path) {
-//     fetch(`/api/read?path=${path}`)
-//         .then(res => res.text())
-//         .then(content => {
-//             if (window.editor) {
-//                 const ext = path.split('.').pop();
-//                 const lang = getLanguageFromPath(ext);
-
-//                 const oldModel = window.editor.getModel();
-//                 const newModel = monaco.editor.createModel(content, lang);
-//                 window.editor.setModel(newModel);
-
-//                 if (oldModel) oldModel.dispose(); // cleanup
-
-//                 document.getElementById("filename").textContent = path;
-//                 currentPath = path;
-//             }
-//         })
-//         .catch(err => {
-//             console.error('Failed to open file:', err);
-//             alert('Failed to open file: ' + err.message);
-//         });
-// }
-
 
 function autoSave() {
     if (!currentPath || !window.editor) return;
@@ -637,7 +639,10 @@ function deleteSelected() {
                 if (window.editor) {
                     window.editor.setValue("");
                 }
-                document.getElementById("filename").textContent = "No file selected";
+
+                const filenameEl = document.getElementById("filename");
+                if (filenameEl) filenameEl.textContent = "No file selected";
+
                 currentPath = "";
             }
 
@@ -655,6 +660,7 @@ function deleteSelected() {
             alert('Failed to delete: ' + err.message);
         });
 }
+
 
 // Terminal Functions
 function initializeTerminal() {
@@ -686,8 +692,35 @@ function initializeTerminal() {
     // Terminal input handling
     const terminalInput = document.getElementById('terminal-input');
     terminalInput.addEventListener('keydown', function (e) {
+        if (e.ctrlKey && e.key === 'a') {
+            e.preventDefault(); // Prevent the browser from selecting everything on the page
+            input.select();     // Select all text within the input field
+            return;
+        }
         if (e.key === 'Enter') {
-            const command = terminalInput.value;
+            e.preventDefault();
+            const command = input.value.trim();
+// ########################################################
+            if (command === 'clear' || command === 'cls') {
+                
+                // FIX: Target the correct, single terminal output div
+                const outputPanel = document.getElementById('terminal-output');
+                if (outputPanel) {
+                    outputPanel.innerHTML = '';
+                }
+    
+                if (command) {
+                    // FIX: Use the SAME history array as other commands
+                    terminalHistory.push(command);
+                    historyIndex = terminalHistory.length;
+                }
+                
+                // FIX: Use the correct variable name
+                terminalInput.value = '';
+                return;
+            }
+// ########################################################
+
             if (command.trim()) {
                 terminalHistory.push(command);
                 historyIndex = terminalHistory.length;
@@ -726,15 +759,15 @@ function initializeTerminal() {
     terminalOutput.style.webkitUserSelect = 'text';
 
     // Copy selected text on Ctrl+C
-    terminalOutput.addEventListener('keydown', function (e) {
-        if (e.ctrlKey && e.key === 'c') {
-            const selection = window.getSelection();
-            if (selection.toString().length > 0) {
-                navigator.clipboard.writeText(selection.toString());
-                e.preventDefault();
-            }
-        }
-    });
+    // terminalOutput.addEventListener('keydown', function (e) {
+    //     if (e.ctrlKey && e.key === 'c') {
+    //         const selection = window.getSelection();
+    //         if (selection.toString().length > 0) {
+    //             navigator.clipboard.writeText(selection.toString());
+    //             e.preventDefault();
+    //         }
+    //     }
+    // });
 
     // Right-click context menu for paste
     terminalOutput.addEventListener('contextmenu', function (e) {
@@ -899,60 +932,142 @@ require.config({
         vs: "https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.34.1/min/vs"
     }
 });
-require(["vs/editor/editor.main"], function () {
-    monaco.editor.defineTheme('one-dark-pro', {
-        base: 'vs-dark',
-        inherit: true,
-        rules: [
-            { token: 'comment', foreground: '6A9955', fontStyle: 'italic' },
-            { token: 'keyword', foreground: 'C586C0' },
-            { token: 'number', foreground: 'B5CEA8' },
-            { token: 'string', foreground: 'CE9178' },
-            { token: 'variable', foreground: '9CDCFE' },
-            { token: 'type', foreground: '4EC9B0' },
-            { token: 'function', foreground: 'DCDCAA' },
-        ],
-        colors: {
-            'editor.background': '#1E1E1E',
-            'editor.foreground': '#D4D4D4',
-            'editorLineNumber.foreground': '#858585',
-            'editorCursor.foreground': '#AEAFAD',
-            'editor.lineHighlightBackground': '#2B2B2B',
-            'editor.selectionBackground': '#264F78',
-            'editor.inactiveSelectionBackground': '#3A3D41'
+//require(["vs/editor/editor.main"], async function () {
+//    monaco.editor.defineTheme('one-dark-pro', {
+//        base: 'vs-dark',
+//        inherit: true,
+//        rules: [
+//            { token: 'comment', foreground: '6A9955', fontStyle: 'italic' },
+//            { token: 'keyword', foreground: 'C586C0' },
+//            { token: 'number', foreground: 'B5CEA8' },
+//            { token: 'string', foreground: 'CE9178' },
+//            { token: 'variable', foreground: '9CDCFE' },
+//            { token: 'type', foreground: '4EC9B0' },
+//            { token: 'function', foreground: 'DCDCAA' },
+//        ],
+//        colors: {
+//            'editor.background': '#1E1E1E',
+//            'editor.foreground': '#D4D4D4',
+//            'editorLineNumber.foreground': '#858585',
+//            'editorCursor.foreground': '#AEAFAD',
+//            'editor.lineHighlightBackground': '#2B2B2B',
+//            'editor.selectionBackground': '#264F78',
+//            'editor.inactiveSelectionBackground': '#3A3D41'
+//        }
+//    });
+//
+//    window.editor = monaco.editor.create(document.getElementById("monaco"), {
+//        value: "",
+//        language: "python",
+//        theme: "one-dark-pro", // Use the custom theme here
+//        automaticLayout: true,
+//        fontSize: 15,
+//        lineNumbers: "on",
+//        roundedSelection: false,
+//        scrollBeyondLastLine: false,
+//        readOnly: false,
+//        minimap: { enabled: true }
+//    });
+//
+//    window.editor.focus();
+//
+//    window.editor.onDidChangeModelContent(() => {
+//        clearTimeout(window._autosave);
+//        window._autosave = setTimeout(autoSave, 1000);
+//    });
+//    
+//    // NOW, LOAD THE STATE
+//    if (workspaceDir) {
+//        await loadState();
+//    }
+//
+//    // Load initial file tree
+//    loadFileTree();
+//});
+//
+
+// document.addEventListener('DOMContentLoaded', function () {
+//     initializeTerminal();
+//     initializeResize();
+//     addTerminalTab();
+// });
+
+// =======================================================================
+//          FINAL STARTUP LOGIC: ADD THIS TO THE BOTTOM OF YOUR FILE
+// =======================================================================
+
+document.addEventListener('DOMContentLoaded', async function () {
+    // --- 1. Fetch Workspace Info ---
+    // Fetch the server's workspace directory first, which is essential for state validation.
+    try {
+        const response = await fetch('/api/workspace_dir');
+        const data = await response.json();
+        workspaceDir = data.workspace_dir;
+    } catch (e) {
+        console.error("Could not fetch workspace directory. State will not be saved/restored.", e);
+    }
+
+    // --- 2. Initialize Monaco Editor ---
+    require(["vs/editor/editor.main"], async function () {
+        monaco.editor.defineTheme('one-dark-pro', {
+            base: 'vs-dark',
+            inherit: true,
+            rules: [
+                { token: 'comment', foreground: '6A9955', fontStyle: 'italic' },
+                { token: 'keyword', foreground: 'C586C0' },
+                { token: 'number', foreground: 'B5CEA8' },
+                { token: 'string', foreground: 'CE9178' },
+                { token: 'variable', foreground: '9CDCFE' },
+                { token: 'type', foreground: '4EC9B0' },
+                { token: 'function', foreground: 'DCDCAA' },
+            ],
+            colors: {
+                'editor.background': '#1E1E1E', 'editor.foreground': '#D4D4D4',
+                'editorLineNumber.foreground': '#858585', 'editorCursor.foreground': '#AEAFAD',
+                'editor.lineHighlightBackground': '#2B2B2B', 'editor.selectionBackground': '#264F78',
+                'editor.inactiveSelectionBackground': '#3A3D41'
+            }
+        });
+
+        window.editor = monaco.editor.create(document.getElementById("monaco"), {
+            value: "", language: "python", theme: "one-dark-pro",
+            automaticLayout: true, fontSize: 15, lineNumbers: "on",
+            roundedSelection: false, scrollBeyondLastLine: false, readOnly: false,
+            minimap: { enabled: true }
+        });
+
+        window.editor.focus();
+
+        window.editor.onDidChangeModelContent(() => {
+            clearTimeout(window._autosave);
+            window._autosave = setTimeout(autoSave, 1000);
+        });
+        
+        // --- 3. Load Saved State ---
+        // Now that the editor is ready, attempt to load the previous state.
+        if (workspaceDir) {
+            await loadState();
+        }
+
+        // --- 4. Load File Tree ---
+        // This runs *after* state is loaded, so it will correctly render expanded folders.
+        loadFileTree();
+    });
+
+    // --- 5. Initialize Other UI Components ---
+    initializeResize(); // Your existing resize handler
+    
+    // Create the first terminal tab.
+    addTerminalTab();
+
+    // Handle "Enter" key on the file/folder creation input
+    document.getElementById('newPath').addEventListener('keypress', function (e) {
+        if (e.key === 'Enter') {
+            createEntry();
         }
     });
-
-    window.editor = monaco.editor.create(document.getElementById("monaco"), {
-        value: "",
-        language: "python",
-        theme: "one-dark-pro", // Use the custom theme here
-        automaticLayout: true,
-        fontSize: 15,
-        lineNumbers: "on",
-        roundedSelection: false,
-        scrollBeyondLastLine: false,
-        readOnly: false,
-        minimap: { enabled: true }
-    });
-
-    window.editor.focus();
-
-    window.editor.onDidChangeModelContent(() => {
-        clearTimeout(window._autosave);
-        window._autosave = setTimeout(autoSave, 1000);
-    });
-
-    // Load initial file tree
-    loadFileTree();
 });
 
-
-document.addEventListener('DOMContentLoaded', function () {
-    initializeTerminal();
-    initializeResize();
-    addTerminalTab();
-});
 
 
 // Handle Enter key in create input
@@ -1126,26 +1241,60 @@ document.addEventListener("keydown", (event) => {
 });
 // ###########################################################3
 
-
+// document.addEventListener('contextmenu', function (e) {
+//     const explorerPanel = document.getElementById('fileList');
+    
+//     // Show menu if right-clicked inside the file explorer
+//     if (explorerPanel.contains(e.target)) {
+//         e.preventDefault();
+        
+//         const target = e.target.closest('.tree-item');
+//         showFileContextMenu(e, target);  // target may be null if clicked on empty space
+//     }
+// });
 
 document.addEventListener('contextmenu', function (e) {
-    const target = e.target.closest('.tree-item');
-    if (target && document.getElementById('fileList').contains(target)) {
+    const explorerPanel = document.getElementById('fileList');
+    
+    // Show menu if right-clicked inside the file explorer
+    if (explorerPanel.contains(e.target)) {
         e.preventDefault();
-        showFileContextMenu(e, target);
+        
+        const target = e.target.closest('.tree-item');
+        
+        // If clicked on an item, select it first (trigger click)
+        if (target) {
+            target.click(); // This will select the item and update selectedItem
+            
+            // Small delay to ensure selection is processed
+            setTimeout(() => {
+                showFileContextMenu(e, target);
+            }, 0);
+        } else {
+            // Clicked on empty space
+            showFileContextMenu(e, null);
+        }
     }
 });
+
+
+// document.addEventListener('contextmenu', function (e) {
+//     const target = e.target.closest('.tree-item');
+//     if (target && document.getElementById('fileList').contains(target)) {
+//         e.preventDefault();
+//         showFileContextMenu(e, target);
+//     }
+// });
 
 
 let clipboardItem = null; // to support copy/paste
 
 function showFileContextMenu(e, target) {
-    const path = target.querySelector('.tree-label').textContent;
-    const fullPath = selectedItem?.path || path;
-
+    const path = target?.querySelector('.tree-label')?.textContent || '';
+    const fullPath = target?.dataset?.path || selectedItem?.path || path || '';
+    
     // Clear any existing menu
     document.querySelector('.file-context-menu')?.remove();
-
     const menu = document.createElement('div');
     menu.className = 'file-context-menu';
     menu.style.position = 'fixed';
@@ -1162,17 +1311,23 @@ function showFileContextMenu(e, target) {
         { label: '<span class="codicon codicon-copy"></span> Copy', action: () => { clipboardItem = fullPath; } },
         { label: '<span class="codicon codicon-clippy"></span> Paste', action: () => { if (clipboardItem) pasteItem(clipboardItem, fullPath); } },
         { label: '<span class="codicon codicon-cloud-upload"></span> Upload File', action: () => triggerFileUpload(fullPath) },
+        { label: '<span class="codicon codicon-folder"></span> Upload Folder', action: () => triggerFolderUpload(fullPath) },
         { label: '<span class="codicon codicon-cloud-download"></span> Download', action: () => downloadFile(fullPath) },
-        { label: '<span class="codicon codicon-link"></span> Copy Path', action: () => navigator.clipboard.writeText(fullPath) },
-        // { label: '<span class="codicon codicon-symbol-key"></span> Copy Relative Path', action: () => navigator.clipboard.writeText(getRelativePath(fullPath)) },
+        { label: '<span class="codicon codicon-link"></span> Copy Relative Path', action: () => navigator.clipboard.writeText(fullPath) },
         { label: '<span class="codicon codicon-edit"></span> Rename', action: () => renameItem(fullPath, target) },
-        { label: '<span class="codicon codicon-trash"></span> Delete', action: () => deleteSelected() }
+        { label: '<span class="codicon codicon-trash"></span> Delete', action: () => deleteSelected() },
     ];
 
+    if (!target) {
+        options.length = 0;
+        options.push(
+            { label: '<span class="codicon codicon-cloud-upload"></span> Upload File', action: () => triggerFileUpload('/') },
+            { label: '<span class="codicon codicon-folder"></span> Upload Folder', action: () => triggerFolderUpload('/') }
+        );
+    }
 
     options.forEach(opt => {
         const div = document.createElement('div');
-        // div.textContent = opt.label;
         div.innerHTML = opt.label;
         div.style.padding = '8px 12px';
         div.style.cursor = 'pointer';
@@ -1188,7 +1343,7 @@ function showFileContextMenu(e, target) {
     });
 
     document.body.appendChild(menu);
-
+    
     setTimeout(() => {
         document.addEventListener('click', function removeMenu() {
             if (document.body.contains(menu)) menu.remove();
@@ -1196,6 +1351,55 @@ function showFileContextMenu(e, target) {
         });
     }, 0);
 }
+
+function triggerFolderUpload(destinationPath) {
+    // Create input dynamically with required attributes
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.webkitdirectory = true;
+    input.multiple = true;
+    input.style.display = 'none';
+    
+    input.onchange = async (event) => {
+        const files = Array.from(event.target.files);
+        console.log('Folder files selected:', files.length);
+        
+        for (const file of files) {
+            const relativePath = file.webkitRelativePath;
+            const fullUploadPath = destinationPath === '/' ? relativePath : `${destinationPath}/${relativePath}`;
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('path', fullUploadPath);
+            
+            try {
+                const response = await fetch('/api/upload_folder', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('Upload failed for:', relativePath, errorText);
+                }
+            } catch (error) {
+                console.error('Upload failed for:', relativePath, error);
+            }
+        }
+        
+        // Refresh file tree
+        viewMode === 'tree' ? loadFileTree() : loadFlatFolder(currentDir);
+        alert('Folder uploaded successfully!');
+        
+        // Clean up
+        document.body.removeChild(input);
+    };
+    
+    document.body.appendChild(input);
+    input.click();
+}
+
+
 
 function pasteItem(srcPath, destDir) {
     fetch("/api/paste", {
@@ -1207,24 +1411,6 @@ function pasteItem(srcPath, destDir) {
         .catch(err => alert("Paste failed: " + err.message));
 }
 
-function triggerFileUpload(destinationDir) {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.onchange = () => {
-        const file = input.files[0];
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("destination", destinationDir);
-
-        fetch('/api/upload', {
-            method: 'POST',
-            body: formData
-        }).then(() => {
-            viewMode === 'tree' ? loadFileTree() : loadFlatFolder(currentDir);
-        }).catch(err => alert("Upload failed: " + err.message));
-    };
-    input.click();
-}
 
 function downloadFile(path) {
     const a = document.createElement('a');
@@ -1257,70 +1443,13 @@ function getRelativePath(fullPath) {
 }
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// document.getElementById('runButton').addEventListener('click', () => {
-//     if (!window.editor || !currentPath) return alert("No file open");
-
-//     if (terminals.length === 0) {
-//         addTerminalTab();
-//     }
-
-//     const filePath = currentPath;
-//     const ext = filePath.split('.').pop().toLowerCase();
-
-//     const runCommands = {
-//         'py': `python3 "${filePath}"`,
-//         'js': `node "${filePath}"`,
-//         'sh': `bash "${filePath}"`,
-//         'cpp': `g++ "${filePath}" -o out && ./out`,
-//         'c': `gcc "${filePath}" -o out && ./out`,
-//         'java': `javac "${filePath}" && java ${filePath.replace(/\.java$/, '')}`,
-//         'rb': `ruby "${filePath}"`,
-//         'go': `go run "${filePath}"`,
-//     };
-
-//     const command = runCommands[ext];
-//     if (!command) {
-//         return alert(`No run command defined for .${ext} files`);
-//     }
-
-//     autoSave();
-
-//     // Use active terminal and send command
-//     const activeTerminal = terminals[activeTerminalIdx];
-//     if (activeTerminal && activeTerminal.socket && activeTerminal.socket.connected) {
-//         activeTerminal.socket.emit('terminal_input', { data: command + '\n' });
-//         activeTerminal.input.focus();
-//     } 
-// });
-
-
 addTerminalTab();
 document.getElementById('runButton').addEventListener('click', () => {
     if (!window.editor || !currentPath) return alert("No file open");
-
-    if (terminals.length === 0) {
-        addTerminalTab();
-    }
-
+    
     const filePath = currentPath;
     const ext = filePath.split('.').pop().toLowerCase();
-
     const runCommands = {
-        // Use -u flag for Python to ensure unbuffered output
         'py': `python3 -u "${filePath}"`,
         'js': `node "${filePath}"`,
         'sh': `bash "${filePath}"`,
@@ -1330,23 +1459,32 @@ document.getElementById('runButton').addEventListener('click', () => {
         'rb': `ruby "${filePath}"`,
         'go': `go run "${filePath}"`,
     };
-
+    
     const command = runCommands[ext];
     if (!command) {
         return alert(`No run command defined for .${ext} files`);
     }
-
+    
+    // Copy command to clipboard
+    navigator.clipboard.writeText(command).then(() => {
+        console.log('Command copied to clipboard:', command);
+    }).catch(err => {
+        console.error('Failed to copy command:', err);
+    });
+    
+    // Original terminal logic
+    if (terminals.length === 0) {
+        addTerminalTab();
+    }
+    
     autoSave();
-
     const activeTerminal = terminals[activeTerminalIdx];
-
     if (activeTerminal.socket.connected) {
         activeTerminal.input.focus();
-        activeTerminal.input.value = command;
-        activeTerminal.input.focus();
+        // activeTerminal.input.value = command;
+        // activeTerminal.input.focus();
     }
 });
-
 
 
 function setupTerminalInputHandler(input, terminalIndex, socket, history) {
@@ -1356,13 +1494,38 @@ function setupTerminalInputHandler(input, terminalIndex, socket, history) {
     let searchMode = false;
     let searchQuery = '';
     let originalCommand = '';
+    let waitingForScreenCommand = false;
+    let screenCommandTimeout = null;
+
 
     input.addEventListener('keydown', function (e) {
         const activeTerminal = terminals[terminalIndex];
+        
+        if (e.ctrlKey && e.key === 'a') {
+            e.preventDefault(); 
+            input.select();  
+            return;
+        }
 
         // Handle different key combinations
         if (e.ctrlKey) {
             switch (e.key) {
+
+                case 'c':
+                    e.preventDefault();
+                    if (waitingForScreenCommand) {
+                        // Ctrl+A+C: Create new screen window
+                        socket.emit('terminal_input', { data: '\x01c' });
+                        waitingForScreenCommand = false;
+                        clearTimeout(screenCommandTimeout);
+                        document.querySelector('span[style*="color: #ffa500"]')?.remove();
+                    } else {
+                        // Regular Ctrl+C - Send SIGINT
+                        socket.emit('terminal_input', { data: '\x03' });
+                        input.value = '';
+                        cursorPosition = 0;
+                    }
+                    break;  
                 case 'c':
                     e.preventDefault();
                     // Send SIGINT (Ctrl+C)
@@ -1393,13 +1556,6 @@ function setupTerminalInputHandler(input, terminalIndex, socket, history) {
                     e.preventDefault();
                     // Clear screen
                     socket.emit('terminal_input', { data: 'clear\n' });
-                    break;
-
-                case 'a':
-                    e.preventDefault();
-                    // Move cursor to beginning of line
-                    input.setSelectionRange(0, 0);
-                    cursorPosition = 0;
                     break;
 
                 case 'e':
@@ -1825,14 +1981,14 @@ const keySequence = [];
 let sequenceTimer = null;
 
 // Max delay allowed between key presses in ms
-const sequenceTimeout = 600;
+const sequenceTimeout = 1000;
 
 // Listen globally or on terminal input
 document.addEventListener('keydown', function (e) {
     const key = e.key.toLowerCase();
 
     if (e.ctrlKey && e.key === 'c') {
-        e.preventDefault();
+        // e.preventDefault();
         if (socket && isTerminalConnected) {
             socket.emit('terminal_input', { data: '\x03' }); // ASCII 3 = Ctrl+C
         }
@@ -1941,13 +2097,6 @@ document.addEventListener('keydown', function (e) {
             return;
         }
 
-        // if ((e.ctrlKey && e.key === ' ') || (e.ctrlKey && e.key === 'Spacebar')) {
-        //     const char = e.key;
-        //     if (socket && isTerminalConnected) {
-        //         socket.emit('terminal_input', { data: char });
-        //     }
-        //     e.preventDefault();
-        // }
         if (e.ctrlKey && e.code === 'Space') {
             const char = ' ';
             if (socket && isTerminalConnected) {
@@ -1994,6 +2143,7 @@ function createEditorTab(path) {
             window.editor.setModel(openFiles[path].model);
             currentPath = path;
             highlightTab(path);
+            saveState();
         }
     });
 
@@ -2028,6 +2178,7 @@ function closeEditorTab(path) {
         currentPath = null;
         document.getElementById('filename').textContent = 'No file selected';
     }
+    saveState();
 }
 
 
@@ -2039,3 +2190,66 @@ function highlightTab(path) {
         openFiles[path].tabElement.classList.add('active-tab');
     }
 }
+
+
+// #########################################################################################################
+const IDE_STATE_KEY = 'slimIdeState'; // The key for localStorage
+let workspaceDir = null;
+
+function saveState() {
+    // Don't save if we don't know the workspace directory yet
+    if (!workspaceDir) return;
+
+    try {
+        const state = {
+            workspaceDir: workspaceDir,
+            openFilePaths: Object.keys(openFiles),
+            activeFilePath: currentPath,
+            expandedDirPaths: Array.from(expandedDirs)
+        };
+        localStorage.setItem(IDE_STATE_KEY, JSON.stringify(state));
+    } catch (e) {
+        console.error("Failed to save IDE state:", e);
+    }
+}
+
+/**
+ * Loads and restores the IDE state from localStorage if the workspace matches.
+ */
+async function loadState() {
+    const savedStateJSON = localStorage.getItem(IDE_STATE_KEY);
+    if (!savedStateJSON) return; // No saved state
+
+    try {
+        const savedState = JSON.parse(savedStateJSON);
+        
+        // CRITICAL: Only restore state if the base directory is the same
+        if (savedState.workspaceDir !== workspaceDir) {
+            console.log("Workspace directory has changed. Not restoring state.");
+            localStorage.removeItem(IDE_STATE_KEY); // Clear old state
+            return;
+        }
+
+        // Restore the set of expanded directories
+        savedState.expandedDirPaths.forEach(dir => expandedDirs.add(dir));
+
+        // Restore the open files
+        // We use Promise.all to open files concurrently for faster loading
+        const openFilePromises = savedState.openFilePaths.map(path => openFile(path, { setActive: false }));
+        await Promise.all(openFilePromises);
+
+        // Restore the active tab after all files are open
+        if (savedState.activeFilePath && openFiles[savedState.activeFilePath]) {
+            currentPath = savedState.activeFilePath;
+            window.editor.setModel(openFiles[currentPath].model);
+            highlightTab(currentPath);
+        }
+
+        console.log("IDE state restored successfully.");
+
+    } catch (e) {
+        console.error("Failed to load IDE state:", e);
+        localStorage.removeItem(IDE_STATE_KEY); // Clear corrupted state
+    }
+}
+

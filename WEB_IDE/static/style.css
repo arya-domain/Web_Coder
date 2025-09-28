@@ -353,6 +353,7 @@ body {
 }
 
 .terminal-tab-panel .terminal-output {
+    user-select: text; 
     flex: 1;
     padding: 8px;
     overflow-y: auto;
@@ -568,3 +569,4 @@ body {
     font-weight: bold;
     color: white;
 }
+
